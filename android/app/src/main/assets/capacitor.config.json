@@ -1,0 +1,6 @@
+{
+	"appId": "com.ayesha.deliveryconnect",
+	"appName": "Delivery Connect",
+	"webDir": "dist",
+	"bundledWebRuntime": false
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Delivery Connect",
+  "description": "A delivery management and tracking application.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}
