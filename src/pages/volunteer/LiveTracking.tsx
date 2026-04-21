@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, Phone, MessageCircle, Camera, CheckCircle, Locate, Loader2, AlertTriangle, X, PenTool } from "lucide-react";
+import { ArrowLeft, Phone, MessageCircle, Camera, CheckCircle, Locate, Loader2, AlertTriangle, X, PenTool, User } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import LeafletMap from "@/components/LeafletMap";
@@ -37,35 +37,196 @@ const LiveTracking = () => {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }, []);
 
+  const [trackingRecord, setTrackingRecord] = useState<any>(null);
+  const [donor, setDonor] = useState<{ id: string; phone: string | null; full_name: string | null } | null>(null);
+  const [donation, setDonation] = useState<{ title: string; location: string } | null>(null);
+  const [ngo, setNgo] = useState<{ full_name: string; address: string | null } | null>(null);
+
+  const fetchTrackingData = useCallback(async () => {
+    if (!donationId) return;
+    
+    const { data: donationData, error } = await supabase
+      .from("food_donations")
+      .select("title, location, donor_id, ngo_verified_by")
+      .eq("id", donationId)
+      .single();
+    
+    if (donationData) {
+      setDonation({ title: donationData.title, location: donationData.location });
+      
+      // Fetch donor profile
+      const { data: donorProfile } = await supabase
+        .from("profiles")
+        .select("id, phone, full_name")
+        .eq("id", donationData.donor_id)
+        .single();
+      
+      if (donorProfile) {
+        setDonor({ 
+          id: donorProfile.id, 
+          phone: donorProfile.phone,
+          full_name: donorProfile.full_name
+        });
+      }
+
+      // Fetch NGO profile if assigned
+      if (donationData.ngo_verified_by) {
+        const { data: ngoProfile } = await supabase
+          .from("profiles")
+          .select("full_name, address")
+          .eq("id", donationData.ngo_verified_by)
+          .single();
+        if (ngoProfile) {
+          setNgo({ 
+            full_name: ngoProfile.full_name, 
+            address: ngoProfile.address 
+          });
+        }
+      }
+    }
+  }, [donationId]);
+
+  useEffect(() => {
+    fetchTrackingData();
+  }, [fetchTrackingData]);
+
   const updateLocationInDb = useCallback(async (lat: number, lng: number) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user || !donationId) return;
     const dbStatus = status === "photo-proof" || status === "signature" ? "arrived" : status === "delivered" ? "delivered" : status;
-    const { data: existing } = await supabase.from("volunteer_tracking").select("id").eq("volunteer_id", user.id).eq("donation_id", donationId).maybeSingle();
+    const { data: existing } = await supabase.from("volunteer_tracking").select("*").eq("volunteer_id", user.id).eq("donation_id", donationId).maybeSingle();
     if (existing) {
-      await supabase.from("volunteer_tracking").update({ latitude: lat, longitude: lng, status: dbStatus, updated_at: new Date().toISOString() }).eq("id", existing.id);
+      const { data: updated } = await supabase.from("volunteer_tracking").update({ latitude: lat, longitude: lng, status: dbStatus, updated_at: new Date().toISOString() }).eq("id", existing.id).select().single();
+      setTrackingRecord(updated);
     } else {
-      await supabase.from("volunteer_tracking").insert({ volunteer_id: user.id, donation_id: donationId, latitude: lat, longitude: lng, status: dbStatus });
+      const { data: inserted } = await supabase.from("volunteer_tracking").insert({ volunteer_id: user.id, donation_id: donationId, latitude: lat, longitude: lng, status: dbStatus }).select().single();
+      setTrackingRecord(inserted);
     }
   }, [donationId, status]);
 
+  const handleCallDonor = () => {
+    if (donor?.phone) {
+      // Direct to WhatsApp for "Call" as requested by user
+      const phone = donor.phone.replace(/\D/g, "");
+      window.location.href = `https://wa.me/${phone}?text=Hello, I am the volunteer for your food donation pickup.`;
+    } else {
+      toast.error("Donor's phone number is not available.");
+    }
+  };
+
+  const handleMessageDonor = () => {
+    if (donor?.phone) {
+      const phone = donor.phone.replace(/\D/g, "");
+      window.location.href = `https://wa.me/${phone}?text=Assalam o Alaikum, I am on my way to pick up the donation.`;
+    } else if (donor?.id) {
+       navigate(`/volunteer/chat?to=${donor.id}&donation=${donationId}`);
+    } else {
+      toast.error("Unable to contact donor.");
+    }
+  };
+
+  const [isSimulated, setIsSimulated] = useState(false);
+  const simulationInterval = useRef<NodeJS.Timeout | null>(null);
+
+  const startSimulation = useCallback(() => {
+    setIsSimulated(true);
+    setGpsError(null);
+    // Start at a point slightly away from pickup if en-route
+    if (!location) {
+      setLocation({ lat: pickupLat - 0.02, lng: pickupLng - 0.02 });
+    }
+  }, [location, pickupLat, pickupLng]);
+
   useEffect(() => {
-    if (!navigator.geolocation) { setGpsError("Geolocation not supported"); return; }
+    if (isSimulated && location) {
+      simulationInterval.current = setInterval(() => {
+        const targetLat = status === "en-route" ? pickupLat : dropoffLat;
+        const targetLng = status === "en-route" ? pickupLng : dropoffLng;
+        
+        setLocation(prev => {
+          if (!prev) return prev;
+          // Slowly move towards target
+          const step = 0.0005; 
+          const dLat = targetLat - prev.lat;
+          const dLng = targetLng - prev.lng;
+          const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+          
+          if (dist < step) return { lat: targetLat, lng: targetLng };
+          
+          return {
+            lat: prev.lat + (dLat / dist) * step,
+            lng: prev.lng + (dLng / dist) * step
+          };
+        });
+      }, 2000);
+    }
+    return () => {
+      if (simulationInterval.current) clearInterval(simulationInterval.current);
+    };
+  }, [isSimulated, location, status, pickupLat, pickupLng, dropoffLat, dropoffLng]);
+
+  useEffect(() => {
+    if (isSimulated && location) {
+      const targetLat = status === "en-route" ? pickupLat : dropoffLat;
+      const targetLng = status === "en-route" ? pickupLng : dropoffLng;
+      const dist = calcDistance(location.lat, location.lng, targetLat, targetLng);
+      setDistance(+dist.toFixed(2));
+      const estimatedMinutes = Math.ceil((dist / 25) * 60);
+      setEta(estimatedMinutes > 1 ? estimatedMinutes : 1);
+
+      if (dist < 0.05 && status === "en-route") {
+        toast.success("You have arrived at the pickup point!");
+        setStatus("arrived");
+      }
+      updateLocationInDb(location.lat, location.lng);
+    }
+  }, [location, isSimulated, status, pickupLat, pickupLng, dropoffLat, dropoffLng, calcDistance, updateLocationInDb]);
+
+  useEffect(() => {
+    if (isSimulated) return; // Don't use real GPS if simulation is on
+
+    if (!navigator.geolocation) { 
+      setGpsError("Geolocation not supported"); 
+      return; 
+    }
+    
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
         setLocation({ lat: latitude, lng: longitude });
         setGpsError(null);
-        const dist = calcDistance(latitude, longitude, dropoffLat, dropoffLng);
-        setDistance(+dist.toFixed(1));
-        setEta(Math.ceil((dist / 30) * 60));
-        if (dist < 0.1 && status === "en-route") setStatus("arrived");
+
+        // Check if we are going to pickup or dropoff
+        const targetLat = status === "en-route" ? pickupLat : dropoffLat;
+        const targetLng = status === "en-route" ? pickupLng : dropoffLng;
+
+        const dist = calcDistance(latitude, longitude, targetLat, targetLng);
+        setDistance(+dist.toFixed(2));
+        
+        // Dynamic ETA: Assuming average speed of 25 km/h in city
+        const estimatedMinutes = Math.ceil((dist / 25) * 60);
+        setEta(estimatedMinutes > 1 ? estimatedMinutes : 1);
+
+        if (dist < 0.05 && status === "en-route") {
+          toast.success("You have arrived at the pickup point!");
+          setStatus("arrived");
+        }
+        
         updateLocationInDb(latitude, longitude);
       },
       (error) => {
-        setGpsError(error.code === error.PERMISSION_DENIED ? "Location permission denied." : "Location unavailable.");
+        console.error("GPS Watch error:", error);
+        if (error.code === error.PERMISSION_DENIED) {
+          setGpsError("Location permission denied. Please enable GPS.");
+        } else {
+          setGpsError("Location unavailable.");
+        }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
+      { 
+        enableHighAccuracy: true, 
+        timeout: 20000, 
+        maximumAge: 0 
+      }
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, [calcDistance, updateLocationInDb, status]);
@@ -94,7 +255,7 @@ const LiveTracking = () => {
 
   const handleFinalConfirm = async () => {
     if (!deliveryPhoto || !signatureBase64 || !receiverName.trim()) {
-      toast.error("Photo, receiver name aur signature sab zaruri hain!");
+      toast.error("Photo, receiver name, and signature are all required!");
       return;
     }
 
@@ -208,7 +369,7 @@ const LiveTracking = () => {
             <h3 className="font-semibold text-foreground mb-1 flex items-center gap-2">
               <PenTool size={16} className="text-primary" /> Digital Signature
             </h3>
-            <p className="text-xs text-muted-foreground font-body mb-3">Receiver se neeche sign karwayen</p>
+            <p className="text-xs text-muted-foreground font-body mb-3">Ask the receiver to sign below</p>
             
             {signatureBase64 ? (
               <div className="space-y-2">
@@ -257,9 +418,20 @@ const LiveTracking = () => {
       {/* Map */}
       <div className="mx-4 rounded-2xl overflow-hidden border border-border">
         {gpsError ? (
-          <div className="h-72 flex flex-col items-center justify-center bg-muted/50 gap-3 p-6">
-            <AlertTriangle size={32} className="text-destructive" />
-            <p className="text-sm text-foreground font-medium text-center">{gpsError}</p>
+          <div className="h-72 flex flex-col items-center justify-center bg-muted/50 gap-4 p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-1">
+              <AlertTriangle size={28} className="text-destructive" />
+            </div>
+            <div>
+              <p className="text-sm text-foreground font-bold mb-1">{gpsError}</p>
+              <p className="text-xs text-muted-foreground px-4">Browser may be blocking location permissions in this preview.</p>
+            </div>
+            <button 
+              onClick={startSimulation}
+              className="mt-2 px-6 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-lg shadow-primary/20 flex items-center gap-2 active:scale-[0.98] transition-all"
+            >
+              <Locate size={14} /> Try Simulated Tracking
+            </button>
           </div>
         ) : !location ? (
           <div className="h-72 flex flex-col items-center justify-center bg-muted/50 gap-3">
@@ -293,24 +465,56 @@ const LiveTracking = () => {
         </div>
       )}
 
+      {/* Donor Contact Card */}
+      {donor && (
+        <div className="mx-4 mt-4 glass-card-elevated p-4 flex items-center justify-between animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+              <User size={20} />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Food Donor</p>
+              <h4 className="text-sm font-bold text-foreground">{donor.full_name || "SafeBite Donor"}</h4>
+              <p className="text-xs text-muted-foreground font-medium">{donor.phone || "Number stored"}</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button 
+              onClick={handleCallDonor}
+              className="w-10 h-10 rounded-xl bg-green-500 text-white flex items-center justify-center shadow-lg shadow-green-500/20"
+              title="WhatsApp Call"
+            >
+              <Phone size={18} />
+            </button>
+            <button 
+              onClick={handleMessageDonor}
+              className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20"
+              title="WhatsApp Message"
+            >
+              <MessageCircle size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Pickup details */}
       <div className="mx-4 mt-4 glass-card-elevated p-4">
         <h3 className="font-semibold text-foreground mb-3">Pickup Details</h3>
         <div className="flex items-start gap-3 mb-3">
           <div className="w-3 h-3 rounded-full bg-primary mt-1" />
-          <div><p className="text-sm font-medium text-foreground">Pickup Point</p><p className="text-xs text-muted-foreground font-body">Gulberg III, Lahore</p></div>
+          <div>
+            <p className="text-sm font-medium text-foreground">Pickup Point</p>
+            <p className="text-xs text-muted-foreground font-body">{donation?.location || "Loading pickup location..."}</p>
+          </div>
         </div>
         <div className="ml-1.5 w-px h-6 bg-border" />
         <div className="flex items-start gap-3">
           <div className="w-3 h-3 rounded-full bg-destructive mt-1" />
-          <div><p className="text-sm font-medium text-foreground">Drop-off Point</p><p className="text-xs text-muted-foreground font-body">Model Town, Lahore</p></div>
+          <div>
+            <p className="text-sm font-medium text-foreground">Drop-off Point (NGO)</p>
+            <p className="text-xs text-muted-foreground font-body">{ngo ? `${ngo.full_name}${ngo.address ? `, ${ngo.address}` : ""}` : "Loading drop-off location..."}</p>
+          </div>
         </div>
-      </div>
-
-      {/* Actions */}
-      <div className="mx-4 mt-4 flex gap-3">
-        <button className="flex-1 py-3 rounded-xl font-semibold text-primary-foreground gradient-primary flex items-center justify-center gap-2 text-sm"><Phone size={16} /> Call Donor</button>
-        <button className="flex-1 py-3 rounded-xl font-semibold text-foreground bg-muted flex items-center justify-center gap-2 text-sm"><MessageCircle size={16} /> Message</button>
       </div>
 
       <div className="mx-4 mt-4 mb-8">

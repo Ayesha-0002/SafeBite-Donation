@@ -46,9 +46,41 @@ const NgoTrackRider = () => {
 
   useEffect(() => {
     fetchTracking();
-    // Poll every 5 seconds for live updates
-    const interval = setInterval(fetchTracking, 5000);
-    return () => clearInterval(interval);
+
+    if (!donationId) return;
+
+    // Supabase Realtime: Listen for location updates
+    const channel = supabase
+      .channel(`tracking-${donationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "volunteer_tracking",
+          filter: `donation_id=eq.${donationId}`,
+        },
+        (payload) => {
+          setTracking(payload.new);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "food_donations",
+          filter: `id=eq.${donationId}`,
+        },
+        (payload) => {
+          setDonation(payload.new);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [donationId]);
 
   const statusLabel = (s: string | null) => {

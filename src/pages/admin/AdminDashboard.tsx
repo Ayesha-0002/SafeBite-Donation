@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend } from "recharts";
-import { Shield, Users, AlertTriangle, CheckCircle, XCircle, Bell, LayoutDashboard, Sparkles, UserCog, LogOut, Loader2, Package, Search, Star, FileText, TrendingUp, MapPin, Calendar } from "lucide-react";
+import { Shield, Users, AlertTriangle, CheckCircle, XCircle, Bell, LayoutDashboard, Sparkles, UserCog, LogOut, Loader2, Package, Search, Star, FileText, TrendingUp, MapPin, Calendar, Utensils } from "lucide-react";
 import logo from "@/assets/rizq-logo.png";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -11,7 +11,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 
-const tabs = ["Statistics", "Donor Analytics", "NGO Logs", "Registration Requests", "AI Fraud Detection", "User Management"] as const;
+const tabs = ["Statistics", "Donor Analytics", "NGO Logs", "Registration Requests", "User Management"] as const;
 
 const COLORS = ["hsl(160, 84%, 39%)", "hsl(38, 92%, 50%)", "hsl(0, 72%, 51%)", "hsl(220, 70%, 50%)"];
 
@@ -25,7 +25,9 @@ const AdminDashboard = () => {
       <div className="hidden lg:flex">
         <aside className="w-64 gradient-dark min-h-screen p-6 flex flex-col">
           <div className="flex items-center gap-3 mb-10">
-            <img src={logo} alt="Logo" className="w-8 h-8" />
+            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white border border-white/30 shadow-lg">
+              <Utensils size={20} className="text-white" />
+            </div>
             <span className="text-lg font-bold text-primary-foreground">SafeBite Admin</span>
           </div>
           <nav className="flex flex-col gap-1 flex-1">
@@ -34,7 +36,6 @@ const AdminDashboard = () => {
               { icon: TrendingUp, label: "Donor Analytics", tab: "Donor Analytics" as const },
               { icon: FileText, label: "NGO Logs", tab: "NGO Logs" as const },
               { icon: UserCog, label: "Registrations", tab: "Registration Requests" as const },
-              { icon: Sparkles, label: "AI Fraud Detection", tab: "AI Fraud Detection" as const },
               { icon: Users, label: "User Management", tab: "User Management" as const },
             ].map((item) => (
               <button
@@ -65,7 +66,9 @@ const AdminDashboard = () => {
         <div className="gradient-primary px-5 pt-6 pb-4 rounded-b-3xl">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <Shield size={24} className="text-primary-foreground" />
+              <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white border border-white/30 shadow-lg">
+                <Utensils size={22} className="text-white" />
+              </div>
               <div>
                 <h1 className="text-lg font-bold text-primary-foreground">SafeBite Admin</h1>
                 <p className="text-xs text-primary-foreground/70">Control Room</p>
@@ -100,7 +103,6 @@ const AdminContent = ({ activeTab }: { activeTab: string }) => {
   if (activeTab === "Donor Analytics") return <DonorAnalyticsTab />;
   if (activeTab === "NGO Logs") return <NgoLogsTab />;
   if (activeTab === "Registration Requests") return <RegistrationRequestsTab />;
-  if (activeTab === "AI Fraud Detection") return <FraudDetectionTab />;
   return <UserManagementTab />;
 };
 
@@ -123,7 +125,7 @@ const StatisticsTab = () => {
         total: d.length,
         delivered: d.filter(x => x.status === "delivered").length,
         posted: d.filter(x => x.status === "posted").length,
-        rejected: d.filter(x => !x.ai_safe).length,
+        rejected: d.filter(x => x.status === "rejected").length,
         activeNgos: roles.filter(r => r.role === "volunteer").length,
       });
       setLoading(false);
@@ -162,7 +164,7 @@ const StatisticsTab = () => {
           { value: stats.delivered, label: "Successful Deliveries", icon: CheckCircle, color: "text-primary" },
           { value: stats.activeNgos, label: "Active NGOs/Volunteers", icon: Users, color: "text-secondary" },
           { value: stats.posted, label: "Active / Posted", icon: Bell, color: "text-secondary" },
-          { value: stats.rejected, label: "AI Rejected", icon: AlertTriangle, color: "text-destructive" },
+          { value: stats.rejected, label: "Rejected / Unsafe", icon: AlertTriangle, color: "text-destructive" },
         ].map((s) => (
           <div key={s.label} className="stat-card">
             <s.icon size={20} className={s.color} />
@@ -205,18 +207,6 @@ const StatisticsTab = () => {
           </ResponsiveContainer>
         </div>
       </div>
-
-      <div className="glass-card p-4">
-        <h3 className="font-semibold text-foreground mb-3">🤖 AI Quality Score Distribution</h3>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={qualityData}>
-            <XAxis dataKey="range" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-            <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
-            <Tooltip />
-            <Bar dataKey="count" fill="hsl(160, 84%, 39%)" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
     </div>
   );
 };
@@ -228,13 +218,14 @@ const DonorAnalyticsTab = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [ratingDialog, setRatingDialog] = useState<{ userId: string; name: string } | null>(null);
+  const [detailsDialog, setDetailsDialog] = useState<any | null>(null);
   const [ratingValue, setRatingValue] = useState(5);
   const [ratingComment, setRatingComment] = useState("");
 
   useEffect(() => {
     const fetch = async () => {
       const [donationsRes, profilesRes, ratingsRes] = await Promise.all([
-        supabase.from("food_donations").select("*"),
+        supabase.from("food_donations").select("*").order("created_at", { ascending: false }),
         supabase.from("profiles").select("*"),
         supabase.from("donation_ratings").select("*"),
       ]);
@@ -255,11 +246,16 @@ const DonorAnalyticsTab = () => {
             totalPosts: 0,
             delivered: 0,
             rejected: 0,
+            pending: 0,
+            donations: []
           };
         }
-        donorMap[d.donor_id].totalPosts++;
-        if (d.status === "delivered") donorMap[d.donor_id].delivered++;
-        if (!d.ai_safe) donorMap[d.donor_id].rejected++;
+        const donor = donorMap[d.donor_id];
+        donor.totalPosts++;
+        donor.donations.push(d);
+        if (d.status === "delivered") donor.delivered++;
+        else if (d.status === "rejected") donor.rejected++;
+        else donor.pending++;
       });
 
       setDonorData(Object.values(donorMap).sort((a, b) => b.totalPosts - a.totalPosts));
@@ -321,6 +317,7 @@ const DonorAnalyticsTab = () => {
               <TableHead>Email</TableHead>
               <TableHead className="text-center">Total Posts</TableHead>
               <TableHead className="text-center">Delivered</TableHead>
+              <TableHead className="text-center">Pending</TableHead>
               <TableHead className="text-center">Rejected</TableHead>
               <TableHead className="text-center">Avg Rating</TableHead>
               <TableHead className="text-center">Action</TableHead>
@@ -329,10 +326,13 @@ const DonorAnalyticsTab = () => {
           <TableBody>
             {filtered.map(d => (
               <TableRow key={d.id}>
-                <TableCell className="font-medium">{d.name}</TableCell>
+                <TableCell className="font-medium cursor-pointer hover:text-primary transition-colors" onClick={() => setDetailsDialog(d)}>
+                  {d.name}
+                </TableCell>
                 <TableCell className="text-muted-foreground text-sm">{d.email}</TableCell>
                 <TableCell className="text-center font-bold">{d.totalPosts}</TableCell>
                 <TableCell className="text-center"><Badge variant="secondary" className="bg-primary/10 text-primary">{d.delivered}</Badge></TableCell>
+                <TableCell className="text-center"><Badge variant="outline" className="text-orange-500 border-orange-500/20 bg-orange-500/5">{d.pending}</Badge></TableCell>
                 <TableCell className="text-center"><Badge variant="destructive">{d.rejected}</Badge></TableCell>
                 <TableCell className="text-center">
                   {getAvgRating(d.id) ? (
@@ -352,11 +352,180 @@ const DonorAnalyticsTab = () => {
               </TableRow>
             ))}
             {filtered.length === 0 && (
-              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">No donors found</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-10">No donors found</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
       </div>
+
+      {/* Donation Details Dialog */}
+      {detailsDialog && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm" onClick={() => setDetailsDialog(null)}>
+          <div className="bg-card rounded-[2rem] p-5 sm:p-8 w-full max-w-4xl shadow-2xl animate-scale-in max-h-[92vh] overflow-hidden flex flex-col border border-border/50" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
+                  <Package size={28} />
+                </div>
+                <div>
+                  <h4 className="font-bold text-2xl text-foreground tracking-tight">{detailsDialog.name}</h4>
+                  <p className="text-sm text-muted-foreground flex items-center gap-2">
+                    <Star size={14} className="text-yellow-500 fill-yellow-500" />
+                    <span>Avg Rating: <b>{getAvgRating(detailsDialog.id) || "N/A"}</b></span>
+                    <span className="mx-1">•</span>
+                    <span>{detailsDialog.email}</span>
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setDetailsDialog(null)}
+                className="w-10 h-10 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-all hover:rotate-90"
+              >
+                <XCircle size={20} className="text-muted-foreground" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-8">
+              {/* Quick Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                {[
+                  { label: "Total Posts", value: detailsDialog.totalPosts, icon: FileText, color: "text-blue-500", bg: "bg-blue-500/10" },
+                  { label: "Delivered", value: detailsDialog.delivered, icon: CheckCircle, color: "text-primary", bg: "bg-primary/10" },
+                  { label: "Pending", value: detailsDialog.pending, icon: Bell, color: "text-orange-500", bg: "bg-orange-500/10" },
+                  { label: "Rejected", value: detailsDialog.rejected, icon: AlertTriangle, color: "text-destructive", bg: "bg-destructive/10" },
+                ].map((stat) => (
+                  <div key={stat.label} className={`${stat.bg} p-4 rounded-2xl border border-white/5`}>
+                     <div className="flex items-center justify-between mb-2">
+                       <stat.icon size={16} className={stat.color} />
+                     </div>
+                     <p className="text-2xl font-black text-foreground">{stat.value}</p>
+                     <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{stat.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* History Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="glass-card p-5">
+                  <h5 className="font-bold text-sm mb-4 flex items-center gap-2">
+                    <TrendingUp size={16} className="text-primary" /> Monthly Activity
+                  </h5>
+                  <div className="h-[200px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={(() => {
+                        const monthsMap: Record<string, any> = {};
+                        detailsDialog.donations.forEach((d: any) => {
+                          const monthStr = format(new Date(d.created_at), "MMM yyyy");
+                          if (!monthsMap[monthStr]) monthsMap[monthStr] = { month: monthStr, posts: 0, delivered: 0 };
+                          monthsMap[monthStr].posts++;
+                          if (d.status === "delivered") monthsMap[monthStr].delivered++;
+                        });
+                        return Object.values(monthsMap).reverse();
+                      })()}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                        <XAxis dataKey="month" style={{ fontSize: '10px' }} tickLine={false} axisLine={false} />
+                        <YAxis hide />
+                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+                        <Bar dataKey="posts" fill="hsl(160, 84%, 39%)" radius={[4, 4, 0, 0]} barSize={20} />
+                        <Bar dataKey="delivered" fill="hsl(38, 92%, 50%)" radius={[4, 4, 0, 0]} barSize={20} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="glass-card p-5">
+                  <h5 className="font-bold text-sm mb-4 flex items-center gap-2">
+                    <Star size={16} className="text-yellow-500" /> Rating Trend (Daily)
+                  </h5>
+                  <div className="h-[200px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={(() => {
+                        const dayMap: Record<string, any> = {};
+                        const userRatings = ratings.filter(r => r.rated_user_id === detailsDialog.id);
+                        userRatings.forEach((r: any) => {
+                          const dateStr = format(new Date(r.created_at || new Date()), "dd MMM");
+                          if (!dayMap[dateStr]) dayMap[dateStr] = { day: dateStr, rating: 0, count: 0 };
+                          dayMap[dateStr].rating += r.rating;
+                          dayMap[dateStr].count++;
+                        });
+                        return Object.values(dayMap).map((d: any) => ({ ...d, avg: (d.rating / d.count).toFixed(1) }));
+                      })()}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                        <XAxis dataKey="day" style={{ fontSize: '10px' }} tickLine={false} axisLine={false} />
+                        <YAxis hide domain={[0, 5]} />
+                        <Tooltip />
+                        <Line type="monotone" dataKey="avg" stroke="hsl(38, 92%, 50%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: 'white' }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+              {/* Detailed Posts List */}
+              <div>
+                <h5 className="font-bold text-sm mb-4 flex items-center gap-2">
+                  <FileText size={16} className="text-blue-500" /> Post History
+                </h5>
+                <div className="flex flex-col gap-3">
+                  {detailsDialog.donations.map((dn: any) => (
+                    <div key={dn.id} className="glass-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group hover:bg-muted/30 transition-all border border-transparent hover:border-border/60">
+                      <div className="flex items-center gap-4">
+                        {dn.image_url ? (
+                          <img 
+                            src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/food-images/${dn.image_url}`} 
+                            alt={dn.title} 
+                            className="w-14 h-14 rounded-2xl object-cover ring-1 ring-border group-hover:scale-105 transition-transform"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
+                            <Utensils size={24} className="text-muted-foreground/30" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <h6 className="font-bold text-foreground text-sm truncate">{dn.title}</h6>
+                          <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground font-body mt-0.5">
+                            <span className="flex items-center gap-1"><MapPin size={10} /> {dn.location}</span>
+                            <span>•</span>
+                            <span className="flex items-center gap-1"><Calendar size={10} /> {format(new Date(dn.created_at), "dd MMM yyyy")}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right hidden sm:block">
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-1">Status</p>
+                          <Badge 
+                            variant={dn.status === "delivered" ? "secondary" : dn.status === "rejected" ? "destructive" : "outline"} 
+                            className={`text-[10px] font-bold ${dn.status === "delivered" ? "bg-primary/10 text-primary" : ""}`}
+                          >
+                            {dn.status.toUpperCase()}
+                          </Badge>
+                        </div>
+                        <div className="h-10 w-[1px] bg-border/60 mx-1 hidden sm:block" />
+                        <div className="flex flex-col items-end">
+                           <div className="flex items-center gap-1 mb-1">
+                             {dn.status === "rejected" && <Badge variant="destructive" className="h-4 px-1.5 text-[9px] font-black">REJECTED</Badge>}
+                           </div>
+                           <p className="text-[10px] text-muted-foreground font-mono">{dn.quantity} Servings</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-border flex justify-end">
+              <button 
+                onClick={() => setDetailsDialog(null)}
+                className="px-8 py-3 rounded-2xl bg-foreground text-background font-bold text-sm hover:opacity-90 active:scale-95 transition-all shadow-lg"
+              >
+                Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Rating Dialog */}
       {ratingDialog && (
@@ -573,99 +742,156 @@ const RegistrationRequestsTab = () => {
   );
 };
 
-// ============ FRAUD DETECTION TAB ============
-const FraudDetectionTab = () => {
-  const [flagged, setFlagged] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetch = async () => {
-      const { data } = await supabase.from("food_donations").select("*").order("created_at", { ascending: false });
-      setFlagged(data || []);
-      setLoading(false);
-    };
-    fetch();
-  }, []);
-
-  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-primary" size={32} /></div>;
-
-  const getImageUrl = (url: string | null) => {
-    if (!url) return null;
-    if (url.startsWith("http")) return url;
-    return `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/food-images/${url}`;
-  };
-
-  return (
-    <div>
-      <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-        <Shield size={18} className="text-primary" /> AI Food Quality Monitor
-      </h3>
-      <div className="flex flex-col gap-3">
-        {flagged.map((a) => (
-          <div key={a.id} className="food-card flex items-center gap-3 p-3">
-            {getImageUrl(a.image_url) ? (
-              <img src={getImageUrl(a.image_url)!} alt={a.title} className="w-12 h-12 rounded-xl object-cover" />
-            ) : (
-              <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center">
-                <Package size={20} className="text-muted-foreground" />
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <h4 className="font-semibold text-foreground text-sm">{a.title}</h4>
-              <p className="text-xs text-muted-foreground font-body">Score: {a.ai_quality_score ?? "N/A"}/100 · {a.ai_quality_label ?? "Pending"}</p>
-              <p className="text-xs text-muted-foreground font-body">{a.ai_freshness ?? ""}</p>
-            </div>
-            <span className={a.ai_safe ? "badge-verified" : "badge-fraud"}>{a.ai_safe ? "Safe ✓" : "Unsafe ✗"}</span>
-          </div>
-        ))}
-        {flagged.length === 0 && <p className="text-sm text-muted-foreground text-center py-10">No donations to review</p>}
-      </div>
-    </div>
-  );
-};
-
 // ============ USER MANAGEMENT TAB ============
 const UserManagementTab = () => {
   const [users, setUsers] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [filterToday, setFilterToday] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("all");
+
+  const fetchUsers = async () => {
+    const { data: authData } = await supabase.auth.getUser();
+    setCurrentUser(authData.user);
+    
+    const { data: roles } = await supabase.from("user_roles").select("*");
+    const { data: profiles } = await supabase.from("profiles").select("*");
+    const merged = (profiles || []).map(p => {
+      const role = (roles || []).find(r => r.user_id === p.id);
+      return { ...p, role: role?.role || "user" };
+    });
+    setUsers(merged);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetch = async () => {
-      const { data: roles } = await supabase.from("user_roles").select("*");
-      const { data: profiles } = await supabase.from("profiles").select("*");
-      const merged = (roles || []).map(r => {
-        const profile = (profiles || []).find(p => p.id === r.user_id);
-        return { ...r, full_name: profile?.full_name || "Unknown", email: profile?.email || "" };
-      });
-      setUsers(merged);
-      setLoading(false);
-    };
-    fetch();
+    fetchUsers();
   }, []);
+
+  const handleToggleBlock = async (userId: string, currentStatus: boolean) => {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ is_blocked: !currentStatus })
+      .eq("id", userId);
+    
+    if (error) {
+      toast.error("Failed to update status. Please ensure 'is_blocked' column exists in profiles table.");
+      return;
+    }
+    
+    toast.success(currentStatus ? "User unblocked successfully" : "User blocked from platform");
+    fetchUsers();
+  };
+
+  const filteredUsers = useMemo(() => {
+    return users.filter(u => {
+      const matchesSearch = 
+        u.full_name?.toLowerCase().includes(search.toLowerCase()) || 
+        u.email?.toLowerCase().includes(search.toLowerCase());
+      
+      const isToday = u.created_at && new Date(u.created_at).toDateString() === new Date().toDateString();
+      const matchesDate = filterToday ? isToday : true;
+      const matchesRole = roleFilter === "all" ? true : u.role === roleFilter;
+
+      return matchesSearch && matchesDate && matchesRole;
+    });
+  }, [users, search, filterToday, roleFilter]);
 
   if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-primary" size={32} /></div>;
 
   return (
-    <div>
-      <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
-        <Users size={18} className="text-primary" /> Active Users ({users.length})
-      </h3>
-      <div className="flex flex-col gap-2">
-        {users.map((u) => (
-          <div key={u.id} className="glass-card p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-bold text-primary">
-                {(u.full_name || "?").split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row gap-3 justify-between items-start md:items-center mb-2">
+        <h3 className="font-semibold text-foreground flex items-center gap-2">
+          <Users size={18} className="text-primary" /> User Management ({filteredUsers.length})
+        </h3>
+        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="w-[130px] h-10">
+              <SelectValue placeholder="All Roles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Roles</SelectItem>
+              <SelectItem value="donor">Donors</SelectItem>
+              <SelectItem value="volunteer">Volunteers</SelectItem>
+              <SelectItem value="ngo">NGOs</SelectItem>
+              <SelectItem value="admin">Admins</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="relative flex-1 md:w-64">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input 
+              placeholder="Search users..." 
+              value={search} 
+              onChange={e => setSearch(e.target.value)} 
+              className="pl-9 h-10"
+            />
+          </div>
+          <button 
+            onClick={() => setFilterToday(!filterToday)}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all border ${
+              filterToday ? "gradient-primary text-primary-foreground border-transparent" : "bg-muted text-muted-foreground border-border"
+            }`}
+          >
+            Today
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {filteredUsers.map((u) => {
+          const isSelf = currentUser?.id === u.id;
+          return (
+            <div key={u.id} className={`glass-card p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in ${u.is_blocked ? "opacity-75 bg-destructive/5" : ""}`}>
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <div className={`w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${u.is_blocked ? "bg-destructive/20 text-destructive" : "bg-primary/10 text-primary"}`}>
+                  {(u.full_name || "?").split(" ").map((n: string) => n[0]).join("").slice(0, 2)}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-foreground text-sm truncate">{u.full_name}</h4>
+                    {u.is_blocked && <Badge variant="destructive" className="h-5 text-[9px] px-1.5 font-bold">BLOCKED</Badge>}
+                    {isSelf && <Badge variant="outline" className="h-5 text-[9px] px-1.5 font-bold border-primary text-primary">YOU</Badge>}
+                  </div>
+                  <p className="text-xs text-muted-foreground font-body truncate">{u.email}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Badge variant="secondary" className="bg-primary/5 text-primary text-[9px] py-0 h-4 uppercase font-bold">{u.role}</Badge>
+                    <span className="text-[10px] text-muted-foreground font-body font-medium flex items-center gap-1">
+                      <Calendar size={10} /> {u.created_at ? format(new Date(u.created_at), "dd MMM yyyy") : "N/A"}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <h4 className="font-semibold text-foreground text-sm">{u.full_name}</h4>
-                <p className="text-xs text-muted-foreground font-body">{u.role} · {u.email}</p>
+              
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                {!isSelf && (
+                  <button 
+                    onClick={() => handleToggleBlock(u.id, !!u.is_blocked)}
+                    className={`flex-1 sm:flex-none px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all border shadow-sm ${
+                      u.is_blocked 
+                        ? "bg-primary text-primary-foreground border-transparent hover:ring-2 hover:ring-primary/20" 
+                        : "bg-destructive/10 text-destructive border-destructive/20 hover:bg-destructive hover:text-white"
+                    }`}
+                  >
+                    {u.is_blocked ? "Unblock Account" : "Block Account"}
+                  </button>
+                )}
+                {isSelf && (
+                  <p className="text-[10px] text-muted-foreground font-medium bg-muted/50 px-3 py-1 rounded-lg italic">
+                    Administrative Access
+                  </p>
+                )}
               </div>
             </div>
-            <span className="badge-verified">{u.role}</span>
+          );
+        })}
+        {filteredUsers.length === 0 && (
+          <div className="text-center py-16 glass-card">
+            <Users size={40} className="mx-auto text-muted-foreground/30 mb-3" />
+            <p className="text-muted-foreground font-medium">No users found matching filters</p>
           </div>
-        ))}
-        {users.length === 0 && <p className="text-sm text-muted-foreground text-center py-10">No users with roles yet</p>}
+        )}
       </div>
     </div>
   );

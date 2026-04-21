@@ -3,12 +3,12 @@ import { Home, MapPin, Package, MessageCircle, User, Loader2, CheckCircle, Camer
 import BottomNav from "@/components/BottomNav";
 import { supabase } from "@/lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 const volunteerNav = [
   { icon: Home, label: "Home", path: "/volunteer" },
   { icon: MapPin, label: "Track", path: "/volunteer/tracking" },
   { icon: Package, label: "Pickups", path: "/volunteer/pickups" },
-  { icon: MessageCircle, label: "Chat", path: "/volunteer/chat" },
   { icon: User, label: "Profile", path: "/volunteer/profile" },
 ];
 
@@ -26,7 +26,7 @@ const VolunteerPickups = () => {
       // Get all donations assigned to or available for this volunteer
       const { data } = await supabase
         .from("food_donations")
-        .select("*")
+        .select("*, donor:profiles!donor_id(phone, full_name)")
         .eq("assigned_volunteer_id", user.id)
         .in("status", ["accepted", "picked_up", "delivered"])
         .order("created_at", { ascending: false });
@@ -35,6 +35,15 @@ const VolunteerPickups = () => {
     };
     fetch();
   }, []);
+
+  const handleWhatsAppChat = (phone: string | null) => {
+    if (!phone) {
+      toast.error("Donor's contact number is not available.");
+      return;
+    }
+    const cleanPhone = phone.replace(/\D/g, "");
+    window.location.href = `https://wa.me/${cleanPhone}?text=Assalam o Alaikum, I am the SafeBite volunteer. I am coming to pick up the food donation.`;
+  };
 
   const getImageUrl = (url: string | null) => {
     if (!url) return null;
@@ -139,10 +148,11 @@ const VolunteerPickups = () => {
                       {p.status === "picked_up" ? "TRACK DELIVERY" : "START PICKUP"}
                     </button>
                     <button
-                      onClick={() => navigate(`/volunteer/chat?to=${p.donor_id}&donation=${p.id}`)}
-                      className="py-2.5 px-4 rounded-xl font-semibold text-primary border border-primary text-sm"
+                      onClick={() => handleWhatsAppChat(p.donor?.phone)}
+                      className="py-2.5 px-4 rounded-xl font-semibold text-white bg-[#25D366] border border-[#25D366] text-sm flex items-center justify-center gap-2"
                     >
                       <MessageCircle size={16} />
+                      WhatsApp
                     </button>
                   </div>
                 )}

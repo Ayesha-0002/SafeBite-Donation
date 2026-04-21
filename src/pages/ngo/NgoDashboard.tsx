@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, Package, CheckCircle, Bell, Loader2, Truck, User, MessageCircle, Eye, UserPlus, MapPin } from "lucide-react";
+import { Home, Package, CheckCircle, Bell, Loader2, Truck, User, MessageCircle, Eye, UserPlus, MapPin, Utensils } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import logo from "@/assets/rizq-logo.png";
 import { useNavigate } from "react-router-dom";
@@ -27,20 +27,15 @@ const NgoDashboard = () => {
     if (!user) return;
 
     const [donationsRes, volunteersRes] = await Promise.all([
-      supabase.from("food_donations").select("*").in("status", ["posted", "accepted", "picked_up"]).eq("ai_safe", true).order("created_at", { ascending: false }),
-      supabase.from("user_roles").select("user_id, role").eq("role", "volunteer"),
+      supabase.from("food_donations").select("*").in("status", ["posted", "accepted", "picked_up"]).order("created_at", { ascending: false }),
+      supabase.from("profiles").select("id, full_name, email, organization_id").eq("organization_id", user.id),
     ]);
 
     const allDonations = donationsRes.data || [];
-    const volunteerIds = (volunteersRes.data || []).map(v => v.user_id);
-
-    // Get volunteer profiles
-    if (volunteerIds.length > 0) {
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name, email").in("id", volunteerIds);
-      setVolunteers(profiles || []);
-    }
+    const myVolunteers = volunteersRes.data || [];
 
     setDonations(allDonations);
+    setVolunteers(myVolunteers);
     setStats({
       available: allDonations.filter(d => d.status === "posted").length,
       inProgress: allDonations.filter(d => d.status === "accepted" || d.status === "picked_up").length,
@@ -49,7 +44,29 @@ const NgoDashboard = () => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    fetchData();
+
+    // Supabase Realtime: Listen for changes in food_donations
+    const channel = supabase
+      .channel("ngo-donations-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "food_donations",
+        },
+        () => {
+          fetchData(); // Refresh all data when any donation changes
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const getImageUrl = (url: string | null) => {
     if (!url) return null;
@@ -72,14 +89,14 @@ const NgoDashboard = () => {
 
   const handleAssignVolunteer = async (donationId: string) => {
     if (!selectedVolunteer) {
-      toast.error("Pehle rider select karo!");
+      toast.error("Please select a rider first!");
       return;
     }
     await supabase.from("food_donations").update({
       assigned_volunteer_id: selectedVolunteer,
       status: "picked_up",
     }).eq("id", donationId);
-    toast.success("Rider assigned! Woh ab pickup karega.");
+    toast.success("Rider assigned! They will pick up the food now.");
     setAssigningId(null);
     setSelectedVolunteer("");
     fetchData();
@@ -91,7 +108,9 @@ const NgoDashboard = () => {
       <div className="gradient-primary px-5 pt-6 pb-10 rounded-b-3xl">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <img src={logo} alt="Logo" className="w-9 h-9" />
+            <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white border border-white/30 shadow-lg">
+              <Utensils size={22} className="text-white" />
+            </div>
             <div>
               <h1 className="text-lg font-bold text-primary-foreground">SafeBite</h1>
               <p className="text-xs text-primary-foreground/70">NGO Dashboard</p>
@@ -143,7 +162,6 @@ const NgoDashboard = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <h4 className="font-semibold text-foreground text-sm truncate">{d.title}</h4>
-                        {d.ai_safe && <span className="badge-verified text-[10px]">AI ✓</span>}
                       </div>
                       <p className="text-xs text-muted-foreground font-body">📍 {d.location}</p>
                       <div className="flex items-center gap-3 mt-1">
@@ -191,22 +209,31 @@ const NgoDashboard = () => {
 
                   {assigningId === d.id || !d.assigned_volunteer_id ? (
                     <div className="space-y-2">
-                      <select
-                        value={selectedVolunteer}
-                        onChange={(e) => setSelectedVolunteer(e.target.value)}
-                        className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                      >
-                        <option value="">— Select Rider / Volunteer —</option>
-                        {volunteers.map((v) => (
-                          <option key={v.id} value={v.id}>{v.full_name || v.email}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => handleAssignVolunteer(d.id)}
-                        className="w-full py-2.5 rounded-xl font-semibold text-secondary-foreground gradient-warm text-sm flex items-center justify-center gap-2"
-                      >
-                        <UserPlus size={16} /> Assign Rider
-                      </button>
+                      {volunteers.length > 0 ? (
+                        <>
+                          <select
+                            value={selectedVolunteer}
+                            onChange={(e) => setSelectedVolunteer(e.target.value)}
+                            className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          >
+                            <option value="">— Select Rider / Volunteer —</option>
+                            {volunteers.map((v) => (
+                              <option key={v.id} value={v.id}>{v.full_name || v.email}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => handleAssignVolunteer(d.id)}
+                            className="w-full py-2.5 rounded-xl font-semibold text-secondary-foreground gradient-warm text-sm flex items-center justify-center gap-2"
+                          >
+                            <UserPlus size={16} /> Assign Rider
+                          </button>
+                        </>
+                      ) : (
+                        <div className="bg-muted rounded-xl p-4 text-center">
+                          <Truck size={24} className="text-muted-foreground mx-auto mb-2 opacity-50" />
+                          <p className="text-xs text-muted-foreground">No riders are currently online or available. Please wait for a volunteer to register.</p>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="bg-primary/5 rounded-xl p-3 flex items-center gap-2">

@@ -58,6 +58,17 @@ const NgoProfile = () => {
           <div><p className="text-xs text-muted-foreground">Organization</p><p className="text-sm font-medium text-foreground">{profile?.organization || "—"}</p></div>
         </div>
 
+        <div className="glass-card-elevated p-4 space-y-2">
+          <div className="flex items-center gap-2 text-primary font-semibold text-sm">
+            <User size={18} />
+            <span>Rider Join Code</span>
+          </div>
+          <p className="text-xs text-muted-foreground font-body">Share this code with your riders so they can join your NGO team.</p>
+          <div className="bg-muted p-2 rounded-lg font-mono text-center text-sm border border-border select-all">
+            {profile?.id}
+          </div>
+        </div>
+
         <button onClick={handleLogout} className="w-full mt-6 py-3 rounded-xl border border-destructive/30 text-destructive font-semibold flex items-center justify-center gap-2">
           <LogOut size={18} /> Log Out
         </button>

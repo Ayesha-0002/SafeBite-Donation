@@ -21,13 +21,27 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
         return;
       }
 
+      // Check if user is blocked
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("is_blocked")
+        .eq("id", user.id)
+        .single();
+
+      if (profile?.is_blocked) {
+        navigate("/blocked", { replace: true });
+        return;
+      }
+
       const { data: roles } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", user.id)
         .eq("role", requiredRole);
 
-      if (roles && roles.length > 0) {
+      const hasRole = (roles && roles.length > 0) || (user.user_metadata?.role === requiredRole);
+
+      if (hasRole) {
         setAuthorized(true);
       } else {
         navigate("/select-role", { replace: true });

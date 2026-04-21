@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
-import { Home, MapPin, Package, MessageCircle, User, LogOut, Settings, Award, Loader2 } from "lucide-react";
+import { Home, MapPin, Package, MessageCircle, User, LogOut, Settings, Award, Loader2, Building2 } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
+import { toast } from "sonner";
 
 const volunteerNav = [
   { icon: Home, label: "Home", path: "/volunteer" },
   { icon: MapPin, label: "Track", path: "/volunteer/tracking" },
   { icon: Package, label: "Pickups", path: "/volunteer/pickups" },
-  { icon: MessageCircle, label: "Chat", path: "/volunteer/chat" },
   { icon: User, label: "Profile", path: "/volunteer/profile" },
 ];
 
@@ -17,28 +17,52 @@ const VolunteerProfile = () => {
   const [profile, setProfile] = useState<any>(null);
   const [stats, setStats] = useState({ pickups: 0, delivered: 0, active: 0 });
   const [loading, setLoading] = useState(true);
+  const [ngoCode, setNgoCode] = useState("");
+  const [joining, setJoining] = useState(false);
+
+  const fetchData = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const [profileRes, trackingRes] = await Promise.all([
+      supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+      supabase.from("food_donations").select("id, status").eq("assigned_volunteer_id", user.id),
+    ]);
+
+    setProfile(profileRes.data || { email: user.email });
+    const t = trackingRes.data || [];
+    setStats({
+      pickups: t.length,
+      delivered: t.filter(x => x.status === "delivered").length,
+      active: t.filter(x => x.status !== "delivered").length,
+    });
+    setLoading(false);
+  };
 
   useEffect(() => {
-    const fetch = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const [profileRes, trackingRes] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
-        supabase.from("food_donations").select("id, status").eq("assigned_volunteer_id", user.id),
-      ]);
-
-      setProfile(profileRes.data || { email: user.email });
-      const t = trackingRes.data || [];
-      setStats({
-        pickups: t.length,
-        delivered: t.filter(x => x.status === "delivered").length,
-        active: t.filter(x => x.status !== "delivered").length,
-      });
-      setLoading(false);
-    };
-    fetch();
+    fetchData();
   }, []);
+
+  const handleJoinNgo = async () => {
+    if (!ngoCode.trim()) return;
+    setJoining(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ organization_id: ngoCode.trim() })
+      .eq("id", user.id);
+
+    if (error) {
+      toast.error("Failed to join NGO. Check the code.");
+    } else {
+      toast.success("Successfully joined NGO team! 🎉");
+      fetchData();
+      setNgoCode("");
+    }
+    setJoining(false);
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -86,6 +110,44 @@ const VolunteerProfile = () => {
               <p className="text-[10px] text-muted-foreground">{s.label}</p>
             </div>
           ))}
+        </div>
+
+        {/* NGO Team Section */}
+        <div className="glass-card-elevated p-4 mb-6">
+          <div className="flex items-center gap-2 text-primary font-semibold text-sm mb-3">
+            <Building2 size={18} />
+            <span>NGO Team Placement</span>
+          </div>
+          
+          {profile?.organization_id ? (
+            <div className="bg-primary/5 p-3 rounded-xl border border-primary/10">
+              <p className="text-xs text-muted-foreground mb-1">Current Organization ID</p>
+              <p className="text-sm font-mono font-medium text-foreground truncate">{profile.organization_id}</p>
+              <p className="text-[10px] text-success mt-2 font-medium flex items-center gap-1">
+                < Award size={10} /> Associated with Private NGO Rider Team
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground font-body">Not part of any NGO team yet. Enter Join Code to become their official rider.</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={ngoCode}
+                  onChange={(e) => setNgoCode(e.target.value)}
+                  placeholder="Paste NGO Join Code"
+                  className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none"
+                />
+                <button
+                  onClick={handleJoinNgo}
+                  disabled={joining}
+                  className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-xs font-semibold disabled:opacity-50"
+                >
+                  {joining ? "Joining..." : "Join Team"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2">

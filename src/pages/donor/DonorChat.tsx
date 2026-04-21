@@ -51,7 +51,7 @@ const DonorChat = () => {
         conversations={conversations}
         loading={loading}
         onSelect={setActiveConv}
-        emptyMessage="Jab koi volunteer ya NGO aap ki donation ke baare mein message karega, wo yahan dikhai dega."
+        emptyMessage="When a volunteer or NGO messages you about your donation, it will appear here."
       />
 
       <BottomNav items={donorNav} />

@@ -11,14 +11,6 @@ const notifications = [
     read: false,
   },
   {
-    id: 2,
-    type: "ai-verified" as const,
-    title: "AI Quality Verified",
-    message: "Fresh Cake from Sweet Corner has been verified. Quality Score: 92/100.",
-    time: "5 min ago",
-    read: false,
-  },
-  {
     id: 3,
     type: "pickup-assigned" as const,
     title: "Pickup Assigned",
@@ -35,14 +27,6 @@ const notifications = [
     read: true,
   },
   {
-    id: 5,
-    type: "fraud-alert" as const,
-    title: "⚠️ AI Fraud Alert",
-    message: "A donation was flagged by AI for food quality concerns. Admin has been notified.",
-    time: "2 hours ago",
-    read: true,
-  },
-  {
     id: 6,
     type: "new-food" as const,
     title: "New Food Available!",
@@ -54,10 +38,8 @@ const notifications = [
 
 const iconMap = {
   "new-food": { icon: MapPin, color: "text-primary", bg: "bg-primary/10" },
-  "ai-verified": { icon: Sparkles, color: "text-primary", bg: "bg-primary/10" },
   "pickup-assigned": { icon: Bell, color: "text-secondary", bg: "bg-secondary/10" },
   "delivered": { icon: CheckCircle, color: "text-primary", bg: "bg-primary/10" },
-  "fraud-alert": { icon: AlertTriangle, color: "text-destructive", bg: "bg-destructive/10" },
 };
 
 const Notifications = () => {

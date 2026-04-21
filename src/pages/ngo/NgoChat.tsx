@@ -73,14 +73,14 @@ const NgoChat = () => {
     <div className="mobile-container min-h-screen bg-background pb-20 flex flex-col">
       <div className="px-5 pt-6 pb-3 border-b border-border">
         <h1 className="text-xl font-bold text-foreground">Messages</h1>
-        <p className="text-xs text-muted-foreground font-body">Donors aur riders ke saath chat karein</p>
+        <p className="text-xs text-muted-foreground font-body">Chat with donors and riders</p>
       </div>
 
       <ChatConversationList
         conversations={conversations}
         loading={loading}
         onSelect={setActiveConv}
-        emptyMessage="Jab aap kisi donor ya rider ko message karein ge, wo yahan dikhai dega."
+        emptyMessage="When you message a donor or rider, it will appear here."
       />
 
       <BottomNav items={ngoNav} />

@@ -1,6 +1,6 @@
 {
-  "name": "Delivery Connect",
-  "description": "A delivery management and tracking application.",
+  "name": "SafeBite",
+  "description": "SafeBite: A secure community food sharing platform with real-time tracking and quality assurance.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": []
 }

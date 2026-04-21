@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, PlusCircle, Clock, MessageCircle, User, Bell, Package, Loader2 } from "lucide-react";
+import { Home, PlusCircle, Clock, MessageCircle, User, Bell, Package, Loader2, Utensils } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import logo from "@/assets/rizq-logo.png";
 import { useNavigate } from "react-router-dom";
@@ -72,10 +72,12 @@ const DonorDashboard = () => {
       <div className="gradient-primary px-5 pt-6 pb-10 rounded-b-3xl">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <img src={logo} alt="Logo" className="w-9 h-9" />
+            <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white border border-white/30 shadow-lg">
+              <Utensils size={22} className="text-white" />
+            </div>
             <div>
               <h1 className="text-lg font-bold text-primary-foreground">SafeBite</h1>
-              <p className="text-xs text-primary-foreground/70">Donor Dashboard</p>
+              <p className="text-xs text-primary-foreground/70">Secure Food Sharing</p>
             </div>
           </div>
           <button onClick={() => navigate("/notifications")} className="w-9 h-9 rounded-full bg-primary-foreground/20 flex items-center justify-center text-primary-foreground relative">
@@ -108,7 +110,7 @@ const DonorDashboard = () => {
           </div>
           <div className="text-left">
             <h3 className="font-semibold text-foreground">Post Surplus Food</h3>
-            <p className="text-xs text-muted-foreground font-body">AI will verify quality before posting</p>
+            <p className="text-xs text-muted-foreground font-body">Share your extra meals today</p>
           </div>
         </button>
 
@@ -121,9 +123,9 @@ const DonorDashboard = () => {
         ) : donations.length === 0 ? (
           <div className="text-center py-10">
             <Package size={40} className="text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground font-body">Abhi tak koi donation nahi ki</p>
+            <p className="text-sm text-muted-foreground font-body">You haven't made any donations yet</p>
             <button onClick={() => navigate("/donor/post")} className="mt-3 py-2 px-6 rounded-xl gradient-primary text-primary-foreground text-sm font-semibold">
-              Pehli Donation Karein
+              Make Your First Donation
             </button>
           </div>
         ) : (

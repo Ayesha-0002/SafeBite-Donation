@@ -58,7 +58,29 @@ const SelectRole = () => {
         .select("role")
         .eq("user_id", user.id);
 
-      const userRoles = (roles || []).map((r) => r.role);
+      let userRoles = (roles || []).map((r) => r.role);
+
+      // Fallback: If user_roles is empty, check user metadata (assigned during signup)
+      if (userRoles.length === 0 && user.user_metadata?.role) {
+        const metadataRole = user.user_metadata.role;
+        
+        // Try to auto-insert into user_roles if possible to sync database
+        // We don't wait for this to finish to avoid delaying the user
+        supabase.from("user_roles").insert({
+          user_id: user.id,
+          role: metadataRole
+        }).then(({ error }) => {
+          if (error) console.warn("Failed to sync role to user_roles table:", error);
+        });
+
+        userRoles = [metadataRole];
+      }
+
+      // If user is an admin, redirect directly regardless of other roles
+      if (userRoles.includes("admin")) {
+        navigate("/admin", { replace: true });
+        return;
+      }
 
       // If user has exactly one role, redirect directly
       if (userRoles.length === 1) {
@@ -111,7 +133,7 @@ const SelectRole = () => {
           <>
             <h1 className="text-2xl font-bold text-foreground mb-3">Registration Pending ⏳</h1>
             <p className="text-muted-foreground font-body text-sm max-w-xs mx-auto">
-              Aapki registration abhi admin ke paas review ke liye pending hai. Approve hone ke baad aap dashboard access kar sakte hain.
+              Your registration is currently under review by the admin. You will be able to access the dashboard once it is approved.
             </p>
           </>
         )}

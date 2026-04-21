@@ -1,15 +1,15 @@
 import { useState, useEffect } from "react";
-import { Home, MapPin, Package, MessageCircle, User, Navigation, Bell, Loader2 } from "lucide-react";
+import { Home, MapPin, Package, MessageCircle, User, Navigation, Bell, Loader2, Utensils } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import logo from "@/assets/rizq-logo.png";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
+import { toast } from "sonner";
 
 const volunteerNav = [
   { icon: Home, label: "Home", path: "/volunteer" },
   { icon: MapPin, label: "Track", path: "/volunteer/tracking" },
   { icon: Package, label: "Pickups", path: "/volunteer/pickups" },
-  { icon: MessageCircle, label: "Chat", path: "/volunteer/chat" },
   { icon: User, label: "Profile", path: "/volunteer/profile" },
 ];
 
@@ -27,7 +27,7 @@ const VolunteerDashboard = () => {
       // Only show pickups assigned to this volunteer
       const { data } = await supabase
         .from("food_donations")
-        .select("*")
+        .select("*, donor:profiles!donor_id(phone, full_name)")
         .eq("assigned_volunteer_id", user.id)
         .in("status", ["picked_up", "accepted"])
         .order("created_at", { ascending: false })
@@ -44,6 +44,15 @@ const VolunteerDashboard = () => {
     fetchData();
   }, []);
 
+  const handleWhatsAppChat = (phone: string | null) => {
+    if (!phone) {
+      toast.error("Donor's contact number is not available.");
+      return;
+    }
+    const cleanPhone = phone.replace(/\D/g, "");
+    window.location.href = `https://wa.me/${cleanPhone}?text=Assalam o Alaikum, I am the SafeBite volunteer. I am coming to pick up the food donation.`;
+  };
+
   const getImageUrl = (url: string | null) => {
     if (!url) return null;
     if (url.startsWith("http")) return url;
@@ -59,7 +68,9 @@ const VolunteerDashboard = () => {
       <div className="gradient-primary px-5 pt-6 pb-10 rounded-b-3xl">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <img src={logo} alt="Logo" className="w-9 h-9" />
+            <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white border border-white/30 shadow-lg">
+              <Utensils size={22} className="text-white" />
+            </div>
             <div>
               <h1 className="text-lg font-bold text-primary-foreground">SafeBite</h1>
               <p className="text-xs text-primary-foreground/70">Volunteer Dashboard</p>
@@ -121,9 +132,15 @@ const VolunteerDashboard = () => {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-2">
                         <h4 className="font-semibold text-foreground text-sm truncate">{p.title}</h4>
-                        {p.ai_safe && <span className="badge-verified text-[10px]">AI ✓</span>}
+                        <button 
+                          onClick={() => handleWhatsAppChat(p.donor?.phone)}
+                          className="flex items-center gap-1 text-[10px] font-bold text-[#25D366] bg-[#25D366]/10 px-2 py-1 rounded-lg"
+                        >
+                          <MessageCircle size={12} />
+                          WhatsApp
+                        </button>
                       </div>
                       <p className="text-xs text-muted-foreground font-body">📍 {p.location}</p>
                       <div className="flex items-center gap-3 mt-1">
