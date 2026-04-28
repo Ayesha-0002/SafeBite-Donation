@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Heart, Truck, Shield, Loader2, LogOut, Building2 } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 
 const allRoles = [
   {
@@ -42,47 +43,43 @@ const allRoles = [
 const SelectRole = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
-  const [approvedRoles, setApprovedRoles] = useState<string[]>([]);
+  const { user, profile, loading: authLoading } = useAuth();
+  const [loading, setLoading] = useState(!profile);
+  const [approvedRoles, setApprovedRoles] = useState<string[]>(profile?.user_roles?.map((r: any) => r.role) || []);
 
   useEffect(() => {
+    if (authLoading) return;
+
     const checkRoles = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         navigate("/", { replace: true });
         return;
       }
 
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id);
+      // Use roles from profile context if available
+      let userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
 
-      let userRoles = (roles || []).map((r) => r.role);
-
-      // Fallback: If user_roles is empty, check user metadata (assigned during signup)
+      // Fallback: If user_roles is still empty in context, maybe it was just created?
+      // But we should trust the AuthContext's profile for the most part.
+      
       if (userRoles.length === 0 && user.user_metadata?.role) {
         const metadataRole = user.user_metadata.role;
-        
-        // Try to auto-insert into user_roles if possible to sync database
-        // We don't wait for this to finish to avoid delaying the user
-        supabase.from("user_roles").insert({
-          user_id: user.id,
-          role: metadataRole
-        }).then(({ error }) => {
-          if (error) console.warn("Failed to sync role to user_roles table:", error);
-        });
-
         userRoles = [metadataRole];
+        
+        // Sync to DB in background
+        (async () => {
+          await supabase.from("user_roles").insert({
+            user_id: user.id,
+            role: metadataRole
+          });
+        })().catch(err => console.warn("Role sync failed", err));
       }
 
-      // If user is an admin, redirect directly regardless of other roles
       if (userRoles.includes("admin")) {
         navigate("/admin", { replace: true });
         return;
       }
 
-      // If user has exactly one role, redirect directly
       if (userRoles.length === 1) {
         const role = allRoles.find((r) => r.id === userRoles[0]);
         if (role) {
@@ -91,27 +88,19 @@ const SelectRole = () => {
         }
       }
 
-      // If user has multiple roles, show selection
-      if (userRoles.length > 1) {
-        setApprovedRoles(userRoles);
-        setLoading(false);
-        return;
-      }
-
-      // No roles assigned — show message
-      setApprovedRoles([]);
+      setApprovedRoles(userRoles);
       setLoading(false);
     };
 
     checkRoles();
-  }, [navigate]);
+  }, [user, profile, authLoading, navigate]);
+
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate("/", { replace: true });
+    await signOut();
   };
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="animate-spin text-primary" size={32} />

@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import LeafletMap from "@/components/LeafletMap";
 import SignaturePad from "@/components/SignaturePad";
 import { toast } from "sonner";
+import { ContactVerification } from "@/components/ContactVerification";
 
 type DeliveryStatus = "en-route" | "arrived" | "photo-proof" | "signature" | "delivered";
 
@@ -106,22 +107,18 @@ const LiveTracking = () => {
 
   const handleCallDonor = () => {
     if (donor?.phone) {
-      // Direct to WhatsApp for "Call" as requested by user
-      const phone = donor.phone.replace(/\D/g, "");
-      window.location.href = `https://wa.me/${phone}?text=Hello, I am the volunteer for your food donation pickup.`;
+      window.location.href = `tel:${donor.phone}`;
     } else {
       toast.error("Donor's phone number is not available.");
     }
   };
 
-  const handleMessageDonor = () => {
+  const handleWhatsAppDonor = () => {
     if (donor?.phone) {
-      const phone = donor.phone.replace(/\D/g, "");
-      window.location.href = `https://wa.me/${phone}?text=Assalam o Alaikum, I am on my way to pick up the donation.`;
-    } else if (donor?.id) {
-       navigate(`/volunteer/chat?to=${donor.id}&donation=${donationId}`);
+      const cleanPhone = donor.phone.replace(/\D/g, "");
+      window.open(`https://wa.me/${cleanPhone}?text=Assalam o Alaikum, I am the SafeBite volunteer. I am on my way to pick up the donation.`, "_blank");
     } else {
-      toast.error("Unable to contact donor.");
+      toast.error("Donor's phone number is not available.");
     }
   };
 
@@ -289,6 +286,17 @@ const LiveTracking = () => {
         }).eq("id", donationId);
 
         await supabase.from("volunteer_tracking").update({ status: "delivered" }).eq("volunteer_id", user.id).eq("donation_id", donationId);
+
+        // Notify Donor
+        if (donor?.id) {
+          await supabase.from("notifications").insert({
+            user_id: donor.id,
+            title: "Donation Delivered!",
+            message: `Your donation "${donation?.title}" has been successfully delivered and received.`,
+            type: "delivered",
+            related_donation_id: donationId,
+          });
+        }
       }
 
       setStatus("delivered");
@@ -424,16 +432,19 @@ const LiveTracking = () => {
             </div>
             <div>
               <p className="text-sm text-foreground font-bold mb-1">{gpsError}</p>
-              <p className="text-xs text-muted-foreground px-4">Browser may be blocking location permissions in this preview.</p>
+              <p className="text-[10px] text-muted-foreground px-4 leading-relaxed">
+                Rizq supports real-time GPS tracking. However, browser previews often block location permissions. 
+                Use <b>Simulated Tracking</b> below to see the animated route demo.
+              </p>
             </div>
             <button 
               onClick={startSimulation}
-              className="mt-2 px-6 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold shadow-lg shadow-primary/20 flex items-center gap-2 active:scale-[0.98] transition-all"
+              className="mt-2 px-6 py-2.5 rounded-xl bg-primary text-primary-foreground text-[10px] font-bold shadow-lg shadow-primary/20 flex items-center gap-2 active:scale-[0.98] transition-all uppercase tracking-wider"
             >
-              <Locate size={14} /> Try Simulated Tracking
+              <Locate size={12} /> Start Mock Tracking Demo
             </button>
           </div>
-        ) : !location ? (
+        ) : !location || isNaN(location.lat) || isNaN(location.lng) ? (
           <div className="h-72 flex flex-col items-center justify-center bg-muted/50 gap-3">
             <Loader2 size={32} className="text-primary animate-spin" />
             <p className="text-sm text-foreground font-medium">Getting GPS location...</p>
@@ -481,14 +492,14 @@ const LiveTracking = () => {
           <div className="flex gap-2">
             <button 
               onClick={handleCallDonor}
-              className="w-10 h-10 rounded-xl bg-green-500 text-white flex items-center justify-center shadow-lg shadow-green-500/20"
-              title="WhatsApp Call"
+              className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20"
+              title="Call Donor"
             >
               <Phone size={18} />
             </button>
             <button 
-              onClick={handleMessageDonor}
-              className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20"
+              onClick={handleWhatsAppDonor}
+              className="w-10 h-10 rounded-xl bg-[#25D366] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/20"
               title="WhatsApp Message"
             >
               <MessageCircle size={18} />

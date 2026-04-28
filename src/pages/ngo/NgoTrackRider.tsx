@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Loader2, MapPin, Truck, CheckCircle, Clock } from "lucide-react";
+import { ArrowLeft, Loader2, MapPin, Truck, CheckCircle, Clock, Phone, MessageCircle } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import LeafletMap from "@/components/LeafletMap";
+import { ContactVerification } from "@/components/ContactVerification";
 
 const NgoTrackRider = () => {
   const navigate = useNavigate();
@@ -13,6 +14,11 @@ const NgoTrackRider = () => {
   const [donation, setDonation] = useState<any>(null);
   const [volunteer, setVolunteer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [verification, setVerification] = useState<{ open: boolean; phone: string; type: "call" | "wa" | null }>({
+    open: false,
+    phone: "",
+    type: null,
+  });
 
   const fetchTracking = async () => {
     if (!donationId) return;
@@ -91,6 +97,32 @@ const NgoTrackRider = () => {
 
   const st = statusLabel(tracking?.status || donation?.status);
 
+  const handleCallRider = (phone: string | null) => {
+    if (!phone) {
+      alert("Rider's contact number is not available.");
+      return;
+    }
+    setVerification({ open: true, phone, type: "call" });
+  };
+
+  const handleWhatsAppRider = (phone: string | null) => {
+    if (!phone) {
+      alert("Rider's contact number is not available.");
+      return;
+    }
+    setVerification({ open: true, phone, type: "wa" });
+  };
+
+  const executeContact = () => {
+    const { phone, type } = verification;
+    if (type === "call") {
+      window.location.href = `tel:${phone}`;
+    } else if (type === "wa") {
+      const cleanPhone = phone.replace(/\D/g, "");
+      window.open(`https://wa.me/${cleanPhone}?text=Assalam o Alaikum, This is the NGO team. Are you on your way for the donation delivery?`, "_blank");
+    }
+  };
+
   return (
     <div className="mobile-container min-h-screen bg-background">
       {/* Header */}
@@ -118,11 +150,11 @@ const NgoTrackRider = () => {
       ) : (
         <div className="px-4 space-y-4 pb-8">
           {/* Map */}
-          {tracking?.latitude && tracking?.longitude ? (
+          {tracking?.latitude && tracking?.longitude && !isNaN(tracking.latitude) && !isNaN(tracking.longitude) ? (
             <div className="rounded-2xl overflow-hidden border border-border">
               <LeafletMap
-                latitude={tracking.latitude}
-                longitude={tracking.longitude}
+                latitude={Number(tracking.latitude)}
+                longitude={Number(tracking.longitude)}
                 dropoffLat={31.4804}
                 dropoffLng={74.3187}
                 className="h-64"
@@ -176,6 +208,22 @@ const NgoTrackRider = () => {
                   <p className="text-sm font-medium text-foreground">{volunteer.full_name || "Rider"}</p>
                   <p className="text-xs text-muted-foreground">{volunteer.phone || volunteer.email}</p>
                 </div>
+                <div className="ml-auto flex gap-2">
+                  <button 
+                    onClick={() => handleCallRider(volunteer.phone)}
+                    className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center transition-all active:scale-90"
+                    title="Call Rider"
+                  >
+                    <Phone size={16} />
+                  </button>
+                  <button 
+                    onClick={() => handleWhatsAppRider(volunteer.phone)}
+                    className="w-9 h-9 rounded-xl bg-[#25D366]/10 text-[#25D366] flex items-center justify-center transition-all active:scale-90"
+                    title="WhatsApp Rider"
+                  >
+                    <MessageCircle size={16} />
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -197,6 +245,13 @@ const NgoTrackRider = () => {
           )}
         </div>
       )}
+      
+      <ContactVerification 
+        isOpen={verification.open}
+        phoneNumber={verification.phone}
+        onClose={() => setVerification({ ...verification, open: false })}
+        onVerified={executeContact}
+      />
     </div>
   );
 };

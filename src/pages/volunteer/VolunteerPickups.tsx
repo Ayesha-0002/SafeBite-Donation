@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
-import { Home, MapPin, Package, MessageCircle, User, Loader2, CheckCircle, Camera } from "lucide-react";
+import { Home, MapPin, Package, MessageCircle, User, Loader2, CheckCircle, Camera, ArrowLeft, Phone, Navigation, Bell } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { supabase } from "@/lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { ContactVerification } from "@/components/ContactVerification";
 
 const volunteerNav = [
   { icon: Home, label: "Home", path: "/volunteer" },
-  { icon: MapPin, label: "Track", path: "/volunteer/tracking" },
-  { icon: Package, label: "Pickups", path: "/volunteer/pickups" },
+  { icon: Bell, label: "Alerts", path: "/notifications" },
   { icon: User, label: "Profile", path: "/volunteer/profile" },
 ];
 
@@ -17,6 +17,13 @@ const VolunteerPickups = () => {
   const [pickups, setPickups] = useState<any[]>([]);
   const [ngoVerifyId, setNgoVerifyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [codeInput, setCodeInput] = useState("");
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verification, setVerification] = useState<{ open: boolean; phone: string; type: "call" | "wa" | null }>({
+    open: false,
+    phone: "",
+    type: null,
+  });
 
   useEffect(() => {
     const fetch = async () => {
@@ -41,14 +48,62 @@ const VolunteerPickups = () => {
       toast.error("Donor's contact number is not available.");
       return;
     }
-    const cleanPhone = phone.replace(/\D/g, "");
-    window.location.href = `https://wa.me/${cleanPhone}?text=Assalam o Alaikum, I am the SafeBite volunteer. I am coming to pick up the food donation.`;
+    setVerification({ open: true, phone, type: "wa" });
+  };
+
+  const handleCall = (phone: string | null) => {
+    if (!phone) {
+      toast.error("Donor's contact number is not available.");
+      return;
+    }
+    setVerification({ open: true, phone, type: "call" });
+  };
+
+  const executeContact = () => {
+    const { phone, type } = verification;
+    if (type === "call") {
+      window.location.href = `tel:${phone}`;
+    } else if (type === "wa") {
+      const cleanPhone = phone.replace(/\D/g, "");
+      window.open(`https://wa.me/${cleanPhone}?text=Assalam o Alaikum, I am the SafeBite volunteer. I am coming to pick up the food donation.`, "_blank");
+    }
   };
 
   const getImageUrl = (url: string | null) => {
     if (!url) return null;
     if (url.startsWith("http")) return url;
     return `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/food-images/${url}`;
+  };
+
+  const handleStartPickup = async (pickup: any) => {
+    if (pickup.status === "picked_up") {
+      navigate(`/volunteer/tracking?donation=${pickup.id}`);
+      return;
+    }
+    setVerifyingId(pickup.id);
+    setCodeInput("");
+  };
+
+  const confirmPickupCode = async (pickup: any) => {
+    if (codeInput !== pickup.pickup_code) {
+      toast.error("Incorrect Pickup Code. Ask the donor for the 4-digit code.");
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("food_donations")
+        .update({ status: "picked_up" })
+        .eq("id", pickup.id);
+
+      if (error) throw error;
+      toast.success("Pickup verified! Route is now active. 🚚");
+      setVerifyingId(null);
+      setPickups(prev => prev.map(p => p.id === pickup.id ? { ...p, status: "picked_up" } : p));
+      navigate(`/volunteer/tracking?donation=${pickup.id}`);
+    } catch (e: any) {
+      toast.error("Cloud sync failed. Check your data connection.");
+    }
   };
 
   const handleNgoVerify = async (donationId: string) => {
@@ -73,16 +128,14 @@ const VolunteerPickups = () => {
 
   return (
     <div className="mobile-container min-h-screen bg-background pb-20">
-      <div className="px-5 pt-6 pb-3 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">My Pickups</h1>
-          <p className="text-sm text-muted-foreground font-body">
-            Active: <span className="text-primary font-semibold">{pickups.filter(p => p.status !== "delivered").length}</span>
-          </p>
-        </div>
+      <div className="flex items-center gap-3 px-5 pt-5 pb-3 border-b border-border bg-background">
+        <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full bg-muted flex items-center justify-center transition-all active:scale-90">
+          <ArrowLeft size={18} className="text-foreground" />
+        </button>
+        <h1 className="text-lg font-bold">My Pickups</h1>
       </div>
 
-      <div className="page-padding flex flex-col gap-3">
+      <div className="page-padding flex flex-col gap-3 mt-2">
         {loading ? (
           <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-primary" size={32} /></div>
         ) : pickups.length === 0 ? (
@@ -140,20 +193,56 @@ const VolunteerPickups = () => {
                 )}
 
                 {!isDelivered && !p.ngo_verified && (
-                  <div className="flex gap-2 mt-3">
-                    <button
-                      onClick={() => navigate(`/volunteer/tracking?donation=${p.id}`)}
-                      className="flex-1 py-2.5 rounded-xl font-semibold text-primary-foreground gradient-primary text-sm"
-                    >
-                      {p.status === "picked_up" ? "TRACK DELIVERY" : "START PICKUP"}
-                    </button>
-                    <button
-                      onClick={() => handleWhatsAppChat(p.donor?.phone)}
-                      className="py-2.5 px-4 rounded-xl font-semibold text-white bg-[#25D366] border border-[#25D366] text-sm flex items-center justify-center gap-2"
-                    >
-                      <MessageCircle size={16} />
-                      WhatsApp
-                    </button>
+                  <div className="flex flex-col gap-2 mt-3">
+                    {verifyingId === p.id ? (
+                      <div className="bg-primary/5 p-4 rounded-2xl border border-primary/20 space-y-3 animate-in slide-in-from-top-2 duration-300">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold text-primary flex items-center gap-1.5 uppercase tracking-wider">
+                            <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                            Verify Pickup
+                          </p>
+                          <button onClick={() => setVerifyingId(null)} className="text-[10px] text-muted-foreground underline">Cancel</button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">Ask the donor for the 4-digit code shown in their history.</p>
+                        <div className="flex gap-2">
+                           <input 
+                             type="text" 
+                             maxLength={4} 
+                             value={codeInput}
+                             onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, ""))}
+                             placeholder="0000"
+                             className="flex-1 bg-background border border-border rounded-xl px-4 py-3 text-center text-lg font-bold tracking-[0.5em] focus:ring-2 focus:ring-primary/20 outline-none"
+                           />
+                           <button 
+                             onClick={() => confirmPickupCode(p)}
+                             className="bg-primary text-primary-foreground px-6 py-3 rounded-xl font-bold shadow-lg shadow-primary/20 transition-all active:scale-95"
+                           >
+                            Confirm
+                           </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleStartPickup(p)}
+                          className="flex-1 py-2.5 rounded-xl font-semibold text-primary-foreground gradient-primary text-sm shadow-md"
+                        >
+                          {p.status === "picked_up" ? "TRACK DELIVERY" : "START PICKUP"}
+                        </button>
+                        <button
+                          onClick={() => handleCall(p.donor?.phone)}
+                          className="w-11 h-11 rounded-xl font-semibold text-primary bg-primary/10 border border-primary/10 flex items-center justify-center transition-all active:scale-90"
+                        >
+                          <Phone size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleWhatsAppChat(p.donor?.phone)}
+                          className="w-11 h-11 rounded-xl font-semibold text-[#25D366] bg-[#25D366]/10 border border-[#25D366]/10 flex items-center justify-center transition-all active:scale-90"
+                        >
+                          <MessageCircle size={18} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -162,6 +251,13 @@ const VolunteerPickups = () => {
         )}
       </div>
       <BottomNav items={volunteerNav} />
+      
+      <ContactVerification 
+        isOpen={verification.open}
+        phoneNumber={verification.phone}
+        onClose={() => setVerification({ ...verification, open: false })}
+        onVerified={executeContact}
+      />
     </div>
   );
 };

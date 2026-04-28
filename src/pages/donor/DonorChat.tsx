@@ -1,20 +1,21 @@
 import { useState, useEffect } from "react";
-import { Home, PlusCircle, Clock, MessageCircle, User } from "lucide-react";
+import { Home, PlusCircle, Clock, MessageCircle, User, ArrowLeft } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import ChatConversationList from "@/components/ChatConversationList";
 import ChatThread from "@/components/ChatThread";
 import { useConversations, Conversation } from "@/hooks/useDirectMessages";
 import { supabase } from "@/lib/supabaseClient";
+import { useNavigate } from "react-router-dom";
 
 const donorNav = [
   { icon: Home, label: "Home", path: "/donor" },
   { icon: PlusCircle, label: "Donate", path: "/donor/post" },
   { icon: Clock, label: "History", path: "/donor/history" },
-  { icon: MessageCircle, label: "Chat", path: "/donor/chat" },
   { icon: User, label: "Profile", path: "/donor/profile" },
 ];
 
 const DonorChat = () => {
+  const navigate = useNavigate();
   const [userId, setUserId] = useState<string | null>(null);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
 
@@ -42,9 +43,11 @@ const DonorChat = () => {
 
   return (
     <div className="mobile-container min-h-screen bg-background pb-20 flex flex-col">
-      <div className="px-5 pt-6 pb-3 border-b border-border">
-        <h1 className="text-xl font-bold text-foreground">Messages</h1>
-        <p className="text-xs text-muted-foreground font-body">Chat with volunteers & NGOs about your donations</p>
+      <div className="flex items-center gap-3 px-5 pt-5 pb-3 border-b border-border bg-background">
+        <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full bg-muted flex items-center justify-center transition-all active:scale-90">
+          <ArrowLeft size={18} className="text-foreground" />
+        </button>
+        <h1 className="text-lg font-bold">Messages</h1>
       </div>
 
       <ChatConversationList

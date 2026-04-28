@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabaseClient";
 import { Loader2 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -10,47 +10,33 @@ interface ProtectedRouteProps {
 
 const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [authorized, setAuthorized] = useState(false);
+  const { user, profile, loading } = useAuth();
 
   useEffect(() => {
-    const checkAccess = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        navigate("/", { replace: true });
-        return;
-      }
+    if (loading) return;
 
-      // Check if user is blocked
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("is_blocked")
-        .eq("id", user.id)
-        .single();
+    if (!user) {
+      console.log("ProtectedRoute: No user, redirecting to home");
+      navigate("/", { replace: true });
+      return;
+    }
 
-      if (profile?.is_blocked) {
-        navigate("/blocked", { replace: true });
-        return;
-      }
+    if (profile?.is_blocked) {
+      console.log("ProtectedRoute: User blocked, redirecting");
+      navigate("/blocked", { replace: true });
+      return;
+    }
 
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .eq("role", requiredRole);
+    const userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
+    const metadataRole = user.user_metadata?.role;
+    // Standard role check: checks user_roles table, metadata fallback, and direct profile role field
+    const hasRole = userRoles.includes(requiredRole) || metadataRole === requiredRole || profile?.role === requiredRole;
 
-      const hasRole = (roles && roles.length > 0) || (user.user_metadata?.role === requiredRole);
-
-      if (hasRole) {
-        setAuthorized(true);
-      } else {
-        navigate("/select-role", { replace: true });
-      }
-      setLoading(false);
-    };
-
-    checkAccess();
-  }, [requiredRole, navigate]);
+    if (!hasRole) {
+      console.log("ProtectedRoute: Role missing", { requiredRole, userRoles, metadataRole });
+      navigate("/select-role", { replace: true });
+    }
+  }, [user, profile, loading, requiredRole, navigate]);
 
   if (loading) {
     return (
@@ -59,6 +45,10 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
       </div>
     );
   }
+
+  const userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
+  const metadataRole = user?.user_metadata?.role;
+  const authorized = userRoles.includes(requiredRole) || metadataRole === requiredRole || profile?.role === requiredRole;
 
   return authorized ? <>{children}</> : null;
 };

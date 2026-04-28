@@ -60,55 +60,66 @@ const LeafletMap = ({
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return;
 
-    const map = L.map(mapRef.current, {
-      zoomControl: false,
-      attributionControl: false,
-    }).setView([latitude, longitude], 14);
+    try {
+      const map = L.map(mapRef.current, {
+        zoomControl: false,
+        attributionControl: false,
+      });
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-    }).addTo(map);
+      const safeLat = isNaN(latitude) || latitude === undefined ? 0 : latitude;
+      const safeLng = isNaN(longitude) || longitude === undefined ? 0 : longitude;
 
-    L.control.zoom({ position: "bottomright" }).addTo(map);
+      map.setView([safeLat, safeLng], 14);
 
-    mapInstanceRef.current = map;
-
-    // Volunteer marker
-    markerRef.current = L.marker([latitude, longitude], { icon: volunteerIcon }).addTo(map);
-    markerRef.current.bindPopup("📍 Your Location").openPopup();
-
-    // Pickup marker
-    if (pickupLat && pickupLng) {
-      pickupMarkerRef.current = L.marker([pickupLat, pickupLng], { icon: pickupIcon }).addTo(map);
-      pickupMarkerRef.current.bindPopup("🟡 Pickup Point");
-    }
-
-    // Dropoff marker
-    if (dropoffLat && dropoffLng) {
-      dropoffMarkerRef.current = L.marker([dropoffLat, dropoffLng], { icon: dropoffIcon }).addTo(map);
-      dropoffMarkerRef.current.bindPopup("🔴 Drop-off Point");
-    }
-
-    // Draw route line
-    const points: L.LatLngExpression[] = [];
-    if (pickupLat && pickupLng) points.push([pickupLat, pickupLng]);
-    points.push([latitude, longitude]);
-    if (dropoffLat && dropoffLng) points.push([dropoffLat, dropoffLng]);
-
-    if (points.length > 1) {
-      routeLineRef.current = L.polyline(points, {
-        color: "hsl(160, 84%, 39%)",
-        weight: 4,
-        dashArray: "10 6",
-        opacity: 0.8,
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
       }).addTo(map);
 
-      map.fitBounds(L.latLngBounds(points as L.LatLngTuple[]).pad(0.2));
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      mapInstanceRef.current = map;
+
+      // Volunteer marker
+      markerRef.current = L.marker([safeLat, safeLng], { icon: volunteerIcon }).addTo(map);
+      markerRef.current.bindPopup("📍 Location").openPopup();
+
+      // Pickup marker
+      if (pickupLat !== undefined && pickupLng !== undefined && !isNaN(pickupLat) && !isNaN(pickupLng)) {
+        pickupMarkerRef.current = L.marker([pickupLat, pickupLng], { icon: pickupIcon }).addTo(map);
+        pickupMarkerRef.current.bindPopup("🟡 Pickup Point");
+      }
+
+      // Dropoff marker
+      if (dropoffLat !== undefined && dropoffLng !== undefined && !isNaN(dropoffLat) && !isNaN(dropoffLng)) {
+        dropoffMarkerRef.current = L.marker([dropoffLat, dropoffLng], { icon: dropoffIcon }).addTo(map);
+        dropoffMarkerRef.current.bindPopup("🔴 Drop-off Point");
+      }
+
+      // Draw route line
+      const points: L.LatLngExpression[] = [];
+      if (pickupLat && pickupLng) points.push([pickupLat, pickupLng]);
+      points.push([latitude, longitude]);
+      if (dropoffLat && dropoffLng) points.push([dropoffLat, dropoffLng]);
+
+      if (points.length > 1) {
+        routeLineRef.current = L.polyline(points, {
+          color: "hsl(160, 84%, 39%)",
+          weight: 4,
+          dashArray: "10 6",
+          opacity: 0.8,
+        }).addTo(map);
+
+        map.fitBounds(L.latLngBounds(points as L.LatLngTuple[]).pad(0.2));
+      }
+    } catch (e) {
+      console.error("Leaflet initialization error:", e);
     }
 
     return () => {
-      map.remove();
-      mapInstanceRef.current = null;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
     };
   }, []);
 

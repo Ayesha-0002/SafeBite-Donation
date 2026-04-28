@@ -70,6 +70,10 @@
   @apply bg-gradient-to-br from-primary to-[#0c9569];
 }
 
+.gradient-dark {
+  @apply bg-[#0f172a];
+}
+
 .gradient-warm {
   @apply bg-gradient-to-br from-secondary to-[#f49c12];
 }

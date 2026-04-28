@@ -4,7 +4,8 @@ import { LucideIcon } from "lucide-react";
 interface NavItem {
   icon: LucideIcon;
   label: string;
-  path: string;
+  path?: string;
+  onClick?: () => void;
 }
 
 interface BottomNavProps {
@@ -18,16 +19,19 @@ const BottomNav = ({ items }: BottomNavProps) => {
   return (
     <nav className="bottom-nav">
       <div className="flex justify-around items-center max-w-md mx-auto">
-        {items.map((item) => {
-          const isActive = location.pathname === item.path;
+        {items.map((item, idx) => {
+          const isActive = item.path ? location.pathname === (item.path.split("?")[0]) : false;
           return (
             <button
-              key={item.path}
-              onClick={() => navigate(item.path)}
+              key={item.label + idx}
+              onClick={() => {
+                if (item.onClick) item.onClick();
+                else if (item.path) navigate(item.path);
+              }}
               className={isActive ? "nav-item-active" : "nav-item"}
             >
-              <item.icon size={22} />
-              <span className="text-[10px] font-medium">{item.label}</span>
+              <item.icon size={22} className={isActive ? "text-primary" : "text-muted-foreground"} />
+              <span className={`text-[10px] font-medium ${isActive ? "text-primary font-bold" : "text-muted-foreground"}`}>{item.label}</span>
             </button>
           );
         })}

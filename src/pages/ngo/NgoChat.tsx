@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Home, Package, MessageCircle, User } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { Home, Package, MessageCircle, User, ArrowLeft } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import BottomNav from "@/components/BottomNav";
 import ChatConversationList from "@/components/ChatConversationList";
 import ChatThread from "@/components/ChatThread";
@@ -10,11 +10,11 @@ import { supabase } from "@/lib/supabaseClient";
 const ngoNav = [
   { icon: Home, label: "Home", path: "/ngo" },
   { icon: Package, label: "Requests", path: "/ngo/requests" },
-  { icon: MessageCircle, label: "Chat", path: "/ngo/chat" },
   { icon: User, label: "Profile", path: "/ngo/profile" },
 ];
 
 const NgoChat = () => {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [userId, setUserId] = useState<string | null>(null);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
@@ -71,9 +71,11 @@ const NgoChat = () => {
 
   return (
     <div className="mobile-container min-h-screen bg-background pb-20 flex flex-col">
-      <div className="px-5 pt-6 pb-3 border-b border-border">
-        <h1 className="text-xl font-bold text-foreground">Messages</h1>
-        <p className="text-xs text-muted-foreground font-body">Chat with donors and riders</p>
+      <div className="flex items-center gap-3 px-5 pt-5 pb-3 border-b border-border bg-background">
+        <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full bg-muted flex items-center justify-center transition-all active:scale-90">
+          <ArrowLeft size={18} className="text-foreground" />
+        </button>
+        <h1 className="text-lg font-bold">Messages</h1>
       </div>
 
       <ChatConversationList

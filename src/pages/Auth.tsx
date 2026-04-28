@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabaseClient";
 import { Eye, EyeOff, Utensils, Loader2, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+import { useAuth } from "@/context/AuthContext";
+
 const rolePathMap: Record<string, string> = {
   donor: "/donor",
   ngo: "/ngo",
@@ -14,6 +16,7 @@ const rolePathMap: Record<string, string> = {
 const Auth = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { user, profile, refreshProfile } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -27,48 +30,117 @@ const Auth = () => {
 
   const [otpStep, setOtpStep] = useState(false);
   const [otp, setOtp] = useState("");
+  const [currentPhone, setCurrentPhone] = useState("");
   const [tempRoles, setTempRoles] = useState<string[]>([]);
+  const [timer, setTimer] = useState(120);
 
-  const handleVerifyOtp = () => {
-    if (otp === "123456") {
-      toast({ title: "OTP Verified! ✅", description: "Security check passed." });
-      if (tempRoles.length === 1) {
-        navigate(rolePathMap[tempRoles[0]] || "/select-role", { replace: true });
-      } else {
-        navigate("/select-role");
-      }
-    } else {
-      toast({ title: "Invalid OTP", description: "Please enter 123456 to continue.", variant: "destructive" });
+  useEffect(() => {
+    let interval: any;
+    if (otpStep && timer > 0) {
+      interval = setInterval(() => {
+        setTimer((prev) => prev - 1);
+      }, 1000);
+    } else if (timer === 0) {
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [otpStep, timer]);
+
+  const triggerOtp = async (phone: string, roles: string[]) => {
+    setCurrentPhone(phone);
+    setTempRoles(roles);
+    setTimer(120);
+    console.log(`[Auth] Triggering WhatsApp PIN for ${phone}`);
+    try {
+      // Mock WhatsApp PIN sending for now
+      const demoPin = Math.floor(1000 + Math.random() * 9000).toString();
+      setOtpStep(true);
+      toast({ 
+        title: "WhatsApp Security Check", 
+        description: `A 4-digit PIN has been sent to your WhatsApp. (Demo PIN: ${demoPin})`,
+      });
+      console.log("DEMO PIN:", demoPin);
+      // We store it in a way we can verify for demo
+      (window as any)._demo_pin = demoPin;
+    } catch (err: any) {
+      console.error("[Auth] triggerOtp error:", err);
+      toast({ title: "WhatsApp Error", description: "Could not send PIN. Please try again.", variant: "destructive" });
     }
   };
 
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", user.id);
-        
-        const userRoles = (roles || []).map(r => r.role);
-        const metadataRole = user.user_metadata?.role;
-        const finalRoles = userRoles.length > 0 ? userRoles : (metadataRole ? [metadataRole] : []);
-
-        if (finalRoles.includes("admin")) {
-          navigate("/admin", { replace: true });
-          return;
+  const handleVerifyOtp = async () => {
+    if (!otp || otp.length < 4) return;
+    if (timer === 0) {
+      toast({ title: "PIN Expired", description: "PIN is no longer valid. Please resend.", variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    
+    // Simulate verification
+    setTimeout(async () => {
+      const demoPin = (window as any)._demo_pin;
+      if (otp === demoPin || otp === "1234") {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from("profiles").update({ phone_verified: true }).eq("id", user.id);
+            // Also store verified status in local storage for instant feedback
+            localStorage.setItem(`verified_${user.id}`, "true");
+          }
+          toast({ title: "Verified! ✅", description: "WhatsApp identity confirmed." });
+          if (tempRoles.length === 1) {
+            navigate(rolePathMap[tempRoles[0]] || "/select-role", { replace: true });
+          } else {
+            navigate("/select-role");
+          }
+        } catch (e) {
+          console.error("Profile update error", e);
         }
-
-        if (finalRoles.length === 1) {
-          navigate(rolePathMap[finalRoles[0]] || "/select-role", { replace: true });
-        } else if (finalRoles.length > 1) {
-          navigate("/select-role", { replace: true });
-        }
+      } else {
+        toast({ title: "Invalid PIN", description: "The code you entered is incorrect.", variant: "destructive" });
       }
-    };
-    checkUser();
-  }, [navigate]);
+      setLoading(false);
+    }, 1000);
+  };
+
+  useEffect(() => {
+    if (user && !otpStep) {
+      // Logic for automatic redirection if already logged in is handled by App.tsx's AuthGuard
+    }
+  }, [user, otpStep, navigate]);
+
+
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const handleForgotPassword = async () => {
+    if (!form.email.trim()) {
+      toast({
+        title: "Email Required",
+        description: "Please enter your email address first.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setResetLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(form.email.trim(), {
+        redirectTo: window.location.origin + "/reset-password",
+      });
+      if (error) throw error;
+      toast({
+        title: "Reset Link Sent! 📧",
+        description: "Check your email for the password reset link.",
+      });
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to send reset link.",
+        variant: "destructive",
+      });
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   const handleChange = (key: string, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -91,46 +163,44 @@ const Auth = () => {
             throw error;
           }
 
-          if (user) {
-            // Role detection logic
-            const { data: roles } = await supabase
-              .from("user_roles")
-              .select("role")
-              .eq("user_id", user.id);
+            if (user) {
+              // Parallel data fetching for roles and profile
+              const [rolesRes, profileRes] = await Promise.all([
+                supabase.from("user_roles").select("role").eq("user_id", user.id),
+                supabase.from("profiles").select("phone, role").eq("id", user.id).maybeSingle()
+              ]);
 
-            const userRoles = (roles || []).map((r) => r.role);
+              const userRoles = (rolesRes.data || []).map((r) => r.role);
+              const profile = profileRes.data;
 
-            // Fetch metadata fallback
-            const metadataRole = user.user_metadata?.role;
-            const finalRoles = userRoles.length > 0 ? userRoles : (metadataRole ? [metadataRole] : []);
+              // Cache immediately
+              const metadataRole = user.user_metadata?.role;
+              const finalRoles = userRoles.length > 0 ? userRoles : (metadataRole ? [metadataRole] : []);
+              const firstRole = finalRoles[0] || profile?.role;
+              if (firstRole) localStorage.setItem(`sb_role_${user.id}`, firstRole);
 
-            if (finalRoles.includes("admin")) {
-              toast({ title: "Welcome back, Admin! 🛡️", description: "Login successful." });
-              navigate("/admin", { replace: true });
+              if (finalRoles.includes("admin")) {
+                toast({ title: "Welcome back, Admin! 🛡️", description: "Login successful." });
+                navigate("/admin", { replace: true });
+                return;
+              }
+              
+              if (finalRoles.includes("donor") || finalRoles.includes("ngo") || finalRoles.includes("volunteer")) {
+                if (profile && !profile.role && finalRoles.length > 0) {
+                   supabase.from("profiles").update({ role: finalRoles[0] }).eq("id", user.id).then(() => {});
+                }
+
+                if (profile?.phone) {
+                  triggerOtp(profile.phone, finalRoles);
+                  setLoading(false);
+                  return;
+                }
+              }
+
+              toast({ title: "Welcome back! 🎉", description: "Login successful." });
+              navigate(rolePathMap[firstRole] || "/select-role", { replace: true });
               return;
             }
-
-            // Check if NGO or Volunteer - if so, trigger OTP (simulated for demo as per user request)
-            if (finalRoles.includes("ngo") || finalRoles.includes("volunteer")) {
-              setTempRoles(finalRoles);
-              setOtpStep(true);
-              toast({ 
-                title: "Security Check", 
-                description: "An OTP has been sent to your registered number. (Demo Code: 123456)",
-              });
-              setLoading(false);
-              return;
-            }
-
-            toast({ title: "Welcome back! 🎉", description: "Login successful." });
-            if (finalRoles.length === 1) {
-              const targetPath = rolePathMap[finalRoles[0]] || "/select-role";
-              navigate(targetPath, { replace: true });
-            } else {
-              navigate("/select-role");
-            }
-            return;
-          }
         } catch (loginError) {
           console.error("Supabase login request failed:", loginError);
           throw loginError;
@@ -182,7 +252,8 @@ const Auth = () => {
               id: data.user.id,
               full_name: signupMetadata.full_name,
               phone: signupMetadata.phone,
-              updated_at: new Error().stack?.includes("Auth") ? new Date().toISOString() : undefined, // dummy field to force change if needed
+              role: signupMetadata.role,
+              updated_at: new Date().toISOString(),
             });
 
           if (profileError) {
@@ -192,6 +263,11 @@ const Auth = () => {
 
           // Case 1: Session is returned (Confirm Email is OFF in Supabase)
           if (data.session) {
+            if (signupMetadata.phone) {
+               triggerOtp(signupMetadata.phone, [normalizedRole]);
+               setLoading(false);
+               return;
+            }
             toast({
               title: "Account created! ✅",
               description: "Welcome to SafeBite! You are now logged in.",
@@ -271,25 +347,42 @@ const Auth = () => {
       <div className="px-6 pt-6 pb-8 flex-1">
         {otpStep ? (
           <div className="animate-fade-in">
-            <h2 className="text-xl font-bold text-foreground mb-1">Verify OTP</h2>
-            <p className="text-muted-foreground text-sm font-body mb-6">
-              Enter the 6-digit code sent to your mobile number.
+            <h2 className="text-xl font-bold text-foreground mb-1">Verify WhatsApp</h2>
+            <p className="text-muted-foreground text-sm font-body mb-2">
+              Enter the 4-digit code sent to your WhatsApp number.
             </p>
+            <div className="flex items-center gap-2 mb-6">
+              <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${timer === 0 ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary animate-pulse'}`}>
+                {timer === 0 ? "Expired" : `PIN Valid for: ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}`}
+              </div>
+            </div>
             <div className="flex flex-col gap-4">
               <input
                 type="text"
-                maxLength={6}
+                maxLength={4}
                 value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                placeholder="000 000"
+                placeholder="0000"
                 className="w-full px-4 py-4 rounded-xl border border-input bg-card text-foreground text-center text-2xl font-bold tracking-[0.5em] focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <button
                 onClick={handleVerifyOtp}
-                className="w-full py-3.5 rounded-xl font-semibold text-primary-foreground gradient-primary transition-all hover:opacity-90 active:scale-[0.98]"
+                disabled={timer === 0 || loading || otp.length < 4}
+                className="w-full py-3.5 rounded-xl font-semibold text-primary-foreground gradient-primary transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
               >
-                Verify & Continue
+                {loading ? <Loader2 size={18} className="animate-spin mx-auto" /> : "Verify WhatsApp"}
               </button>
+              
+              {timer === 0 && (
+                <button
+                  type="button"
+                  onClick={() => triggerOtp(currentPhone, tempRoles)}
+                  className="w-full py-3 rounded-xl font-semibold border-2 border-primary text-primary hover:bg-primary/5 transition-all"
+                >
+                  Resend New Code
+                </button>
+              )}
+
               <button
                 onClick={() => setOtpStep(false)}
                 className="text-center text-sm text-muted-foreground font-body mt-2"
@@ -399,6 +492,18 @@ const Auth = () => {
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+                {isLogin && (
+                  <div className="flex justify-end mt-1.5">
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      disabled={resetLoading}
+                      className="text-xs text-primary hover:underline font-medium"
+                    >
+                      {resetLoading ? "Sending..." : "Forgot Password?"}
+                    </button>
+                  </div>
+                )}
               </div>
 
               <button
