@@ -67,15 +67,15 @@ const AdminDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-white">
       {/* Desktop sidebar */}
       <div className="hidden lg:flex">
-        <aside className="w-64 gradient-dark min-h-screen p-6 flex flex-col">
+        <aside className="w-64 gradient-dark min-h-screen p-6 flex flex-col shadow-xl">
           <div className="flex items-center gap-3 mb-10">
-            <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white border border-white/30 shadow-lg">
+            <div className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur flex items-center justify-center text-white border border-white/20 shadow-lg">
               <Utensils size={20} className="text-white" />
             </div>
-            <span className="text-lg font-bold text-primary-foreground">SafeBite Admin</span>
+            <span className="text-lg font-bold text-white">SafeBite Admin</span>
           </div>
           <nav className="flex flex-col gap-1 flex-1">
             {[
@@ -91,10 +91,10 @@ const AdminDashboard = () => {
               <button
                 key={item.label}
                 onClick={() => setActiveTab(item.tab)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
                   activeTab === item.tab
-                    ? "gradient-primary text-primary-foreground"
-                    : "text-primary-foreground/60 hover:text-primary-foreground hover:bg-primary-foreground/5"
+                    ? "bg-white/20 text-white shadow-lg"
+                    : "text-white/60 hover:text-white hover:bg-white/5"
                 }`}
               >
                 <item.icon size={18} />
@@ -102,38 +102,38 @@ const AdminDashboard = () => {
               </button>
             ))}
           </nav>
-          <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-primary-foreground/60 hover:text-primary-foreground">
+          <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white/50 hover:text-white transition-colors">
             <LogOut size={18} /> Log Out
           </button>
         </aside>
-        <main className="flex-1 p-8 overflow-auto">
+        <main className="flex-1 p-8 overflow-auto bg-[#f8fafc]">
           <AdminContent activeTab={activeTab} />
         </main>
       </div>
 
       {/* Mobile view */}
-      <div className="lg:hidden">
-        <div className="gradient-primary px-5 pt-6 pb-4 rounded-b-3xl">
+      <div className="lg:hidden bg-[#f8fafc] min-h-screen">
+        <div className="gradient-dark px-5 pt-6 pb-4 rounded-b-3xl shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white border border-white/30 shadow-lg">
                 <Utensils size={22} className="text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-primary-foreground">SafeBite Admin</h1>
-                <p className="text-xs text-primary-foreground/70">Control Room</p>
+                <h1 className="text-lg font-bold text-white">SafeBite Admin</h1>
+                <p className="text-xs text-white/70">Control Room</p>
               </div>
             </div>
-            <Bell size={22} className="text-primary-foreground/80" />
+            <Bell size={22} className="text-white/80" />
           </div>
         </div>
-        <div className="flex gap-1 px-4 mt-4 overflow-x-auto pb-2">
+        <div className="flex gap-1 px-4 mt-4 overflow-x-auto pb-4 no-scrollbar">
           {tabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all ${
-                activeTab === tab ? "gradient-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all shadow-sm ${
+                activeTab === tab ? "gradient-primary text-white shadow-md" : "bg-white text-muted-foreground border border-border/50"
               }`}
             >
               {tab}
@@ -168,8 +168,8 @@ const StatisticsTab = () => {
   const [stats, setStats] = useState(() => {
     try {
       const cached = localStorage.getItem("adm_stats");
-      return cached ? JSON.parse(cached) : { total: 0, delivered: 0, posted: 0, rejected: 0, activeNgos: 0 };
-    } catch { return { total: 0, delivered: 0, posted: 0, rejected: 0, activeNgos: 0 }; }
+      return cached ? JSON.parse(cached) : { total: 0, delivered: 0, posted: 0, pending: 0, rejected: 0, activeNgos: 0 };
+    } catch { return { total: 0, delivered: 0, posted: 0, pending: 0, rejected: 0, activeNgos: 0 }; }
   });
   const [donations, setDonations] = useState<any[]>(() => {
     try {
@@ -193,17 +193,32 @@ const StatisticsTab = () => {
         if (donationsRes.error) throw donationsRes.error;
         const d = donationsRes.data || [];
         const roles = rolesRes.data || [];
-        console.log("Admin: Fetched donations:", d.length);
-        setDonations(d);
+        
+        // Fetch profiles separately to avoid join errors
+        const donorIds = [...new Set(d.map(x => x.donor_id))].filter(Boolean);
+        let profiles: any[] = [];
+        if (donorIds.length > 0) {
+          const { data: pData } = await supabase.from("profiles").select("id, full_name").in("id", donorIds);
+          profiles = pData || [];
+        }
+        
+        const donationsWithDonors = d.map(item => ({
+          ...item,
+          donor: profiles.find(p => p.id === item.donor_id)
+        }));
+
+        setDonations(donationsWithDonors);
+        
         const newStats = {
           total: d.length,
           delivered: d.filter(x => x.status === "delivered").length,
           posted: d.filter(x => x.status === "posted").length,
+          pending: d.filter(x => ["posted", "accepted", "picked_up"].includes(x.status)).length,
           rejected: d.filter(x => x.status === "rejected").length,
-          activeNgos: roles.filter(r => r.role === "volunteer").length,
+          activeNgos: roles.filter(r => r.role === "ngo").length,
         };
         setStats(newStats);
-        localStorage.setItem("adm_donations", JSON.stringify(d));
+        localStorage.setItem("adm_donations", JSON.stringify(donationsWithDonors));
         localStorage.setItem("adm_stats", JSON.stringify(newStats));
       } catch (e: any) {
         console.error("fetchStats error:", e);
@@ -218,8 +233,9 @@ const StatisticsTab = () => {
   const statusPieData = useMemo(() => [
     { name: "Delivered", value: stats.delivered },
     { name: "Posted", value: stats.posted },
+    { name: "Pending", value: stats.pending },
     { name: "Rejected", value: stats.rejected },
-    { name: "Other", value: Math.max(0, stats.total - stats.delivered - stats.posted - stats.rejected) },
+    { name: "Other", value: Math.max(0, stats.total - stats.delivered - stats.posted - stats.pending - stats.rejected) },
   ].filter(d => d.value > 0), [stats]);
 
   const weeklyData = useMemo(() => {
@@ -244,12 +260,13 @@ const StatisticsTab = () => {
       </div>}
 
       {/* Real-time Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
         {[
           { value: stats.total, label: "Total Food Donations", icon: Package, color: "text-primary" },
           { value: stats.delivered, label: "Successful Deliveries", icon: CheckCircle, color: "text-primary" },
-          { value: stats.activeNgos, label: "Active Volunteers", icon: Navigation, color: "text-secondary" },
-          { value: stats.posted, label: "Open / Posted", icon: Bell, color: "text-secondary" },
+          { value: stats.pending, label: "Pending Posts", icon: Clock, color: "text-amber-500" },
+          { value: stats.posted, label: "In Market", icon: Bell, color: "text-secondary" },
+          { value: stats.activeNgos, label: "Active NGOs", icon: Shield, color: "text-secondary" },
           { value: stats.rejected, label: "Rejected / Unsafe", icon: AlertTriangle, color: "text-destructive" },
         ].map((s) => (
           <div key={s.label} className="stat-card group hover:scale-[1.02] transition-transform relative overflow-hidden">
@@ -370,14 +387,35 @@ const DonationsTab = () => {
   const fetchDonations = async () => {
     setLoading(true);
     try {
-      const { data: donations, error } = await supabase
+      const { data: donationsData, error } = await supabase
         .from("food_donations")
-        .select("*, donor:profiles!donor_id(full_name, email)")
+        .select("*")
         .order("created_at", { ascending: false });
       
       if (error) throw error;
       
-      setDonations(donations || []);
+      if (!donationsData || donationsData.length === 0) {
+        setDonations([]);
+        return;
+      }
+
+      // Fetch donor profiles separately to avoid relationship cache issues
+      const donorIds = [...new Set(donationsData.map((d: any) => d.donor_id))].filter(Boolean);
+      let profiles: any[] = [];
+      if (donorIds.length > 0) {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("id, full_name, email")
+          .in("id", donorIds);
+        profiles = profileData || [];
+      }
+
+      const donationsWithDonor = donationsData.map((d: any) => ({
+        ...d,
+        donor: profiles.find((p: any) => p.id === d.donor_id)
+      }));
+
+      setDonations(donationsWithDonor || []);
     } catch (e: any) {
       toast.error("Failed to load donations: " + e.message);
     } finally {

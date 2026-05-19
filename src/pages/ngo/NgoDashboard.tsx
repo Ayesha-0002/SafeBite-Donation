@@ -43,12 +43,25 @@ const NgoDashboard = () => {
     try {
       const { data: donationsRes, error } = await supabase
         .from("food_donations")
-        .select("*, donor:profiles(phone, full_name)")
+        .select("*")
         .in("status", ["posted", "accepted", "picked_up", "delivered"])
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      console.log("NGO: Fetched donations:", donationsRes?.length || 0);
+
+      // Extract donor ids and fetch profiles separately
+      const donorIds = [...new Set(donationsRes?.map(d => d.donor_id) || [])].filter(Boolean);
+      let donorProfiles: any[] = [];
+      if (donorIds.length > 0) {
+        const { data: pData } = await supabase.from("profiles").select("id, phone, full_name").in("id", donorIds);
+        donorProfiles = pData || [];
+      }
+      const donorMap = new Map(donorProfiles.map(p => [p.id, p]));
+
+      const enrichedDonations = (donationsRes || []).map(d => ({
+        ...d,
+        donor: donorMap.get(d.donor_id)
+      }));
 
       const [volunteersRes, notificationsRes] = await Promise.all([
         supabase
@@ -63,7 +76,7 @@ const NgoDashboard = () => {
           .eq("read", false)
       ]);
 
-      const allDonations = donationsRes || [];
+      const allDonations = enrichedDonations;
       const myVolunteers = volunteersRes.data || [];
 
       setDonations(allDonations);

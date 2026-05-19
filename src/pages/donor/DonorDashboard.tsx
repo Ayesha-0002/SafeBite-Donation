@@ -41,15 +41,28 @@ const DonorDashboard = () => {
           .eq("read", false),
         supabase
           .from("food_donations")
-          .select("*, volunteer:profiles!left.assigned_volunteer_id(id, phone, full_name)")
+          .select("*")
           .eq("donor_id", user.id)
           .order("created_at", { ascending: false })
       ]);
       
       setUnreadNotifications(notifRes.count || 0);
 
-      const allDonations = donationRes.data || [];
-      console.log("Fetched donations for user", user.id, ":", allDonations);
+      const rawDonations = donationRes.data || [];
+      
+      // Fetch volunteer profiles separately
+      const volunteerIds = [...new Set(rawDonations.map(d => d.assigned_volunteer_id))].filter(Boolean);
+      let volunteersMap = new Map();
+      if (volunteerIds.length > 0) {
+        const { data: vProfiles } = await supabase.from("profiles").select("id, phone, full_name").in("id", volunteerIds);
+        volunteersMap = new Map(vProfiles?.map(v => [v.id, v]) || []);
+      }
+
+      const allDonations = rawDonations.map(d => ({
+        ...d,
+        volunteer: volunteersMap.get(d.assigned_volunteer_id)
+      }));
+
       setDonations(allDonations.slice(0, 10)); // Local UI limit
 
       // Calculate stats from the full list

@@ -46,14 +46,14 @@ const VolunteerDashboard = () => {
       const [assignedRes, marketRes, trackingRes, ratingsRes, notificationsRes] = await Promise.all([
         supabase
           .from("food_donations")
-          .select("*, donor:profiles(phone, full_name)")
+          .select("*")
           .eq("assigned_volunteer_id", user.id)
           .in("status", ["picked_up", "accepted"])
           .order("created_at", { ascending: false }),
         
         supabase
           .from("food_donations")
-          .select("*, donor:profiles(phone, full_name)")
+          .select("*")
           .eq("status", "posted")
           .is("assigned_volunteer_id", null)
           .order("created_at", { ascending: false })
@@ -73,13 +73,28 @@ const VolunteerDashboard = () => {
           .eq("read", false)
       ]);
       
-      setPickups(assignedRes.data || []);
-      setMarketDonations(marketRes.data || []);
+      const assignedRaw = assignedRes.data || [];
+      const marketRaw = marketRes.data || [];
+
+      // Fetch donor profiles separately
+      const donorIds = [...new Set([...assignedRaw, ...marketRaw].map(d => d.donor_id))].filter(Boolean);
+      let donorProfiles: any[] = [];
+      if (donorIds.length > 0) {
+        const { data: pData } = await supabase.from("profiles").select("id, phone, full_name").in("id", donorIds);
+        donorProfiles = pData || [];
+      }
+      const donorMap = new Map(donorProfiles.map(p => [p.id, p]));
+
+      const assignedEnriched = assignedRaw.map(d => ({ ...d, donor: donorMap.get(d.donor_id) }));
+      const marketEnriched = marketRaw.map(d => ({ ...d, donor: donorMap.get(d.donor_id) }));
+
+      setPickups(assignedEnriched);
+      setMarketDonations(marketEnriched);
       setUnreadNotifications(notificationsRes.count || 0);
 
       // Silent cache update
-      if (assignedRes.data) localStorage.setItem("cache_v_pickups", JSON.stringify(assignedRes.data));
-      if (marketRes.data) localStorage.setItem("cache_v_market", JSON.stringify(marketRes.data));
+      if (assignedRes.data) localStorage.setItem("cache_v_pickups", JSON.stringify(assignedEnriched));
+      if (marketRes.data) localStorage.setItem("cache_v_market", JSON.stringify(marketEnriched));
 
       const tracking = trackingRes.data || [];
       const ratingsData = ratingsRes.data || [];

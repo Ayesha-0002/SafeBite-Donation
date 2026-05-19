@@ -31,13 +31,26 @@ const VolunteerPickups = () => {
       if (!user) { setLoading(false); return; }
 
       // Get all donations assigned to or available for this volunteer
-      const { data } = await supabase
+      const { data: donations } = await supabase
         .from("food_donations")
-        .select("*, donor:profiles!donor_id(phone, full_name)")
+        .select("*")
         .eq("assigned_volunteer_id", user.id)
         .in("status", ["accepted", "picked_up", "delivered"])
         .order("created_at", { ascending: false });
-      setPickups(data || []);
+
+      if (donations && donations.length > 0) {
+        const donorIds = [...new Set(donations.map(d => d.donor_id))].filter(Boolean);
+        const { data: profiles } = await supabase.from("profiles").select("id, phone, full_name").in("id", donorIds);
+        const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
+        
+        const enriched = donations.map(d => ({
+          ...d,
+          donor: profileMap.get(d.donor_id)
+        }));
+        setPickups(enriched);
+      } else {
+        setPickups([]);
+      }
       setLoading(false);
     };
     fetch();

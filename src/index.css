@@ -79,15 +79,15 @@
 }
 
 .glass-card {
-  @apply bg-white/70 backdrop-blur-md border border-white/20 rounded-2xl shadow-sm;
+  @apply bg-white/80 backdrop-blur-md border border-slate-200/60 rounded-2xl shadow-sm;
 }
 
 .glass-card-elevated {
-  @apply bg-white/80 backdrop-blur-lg border border-white/30 rounded-2xl shadow-md;
+  @apply bg-white/90 backdrop-blur-lg border border-slate-200/80 rounded-2xl shadow-md;
 }
 
 .stat-card {
-  @apply bg-card border border-border p-4 rounded-2xl flex flex-col items-center justify-center text-center shadow-sm;
+  @apply bg-white border border-slate-200/60 p-4 rounded-2xl flex flex-col items-center justify-center text-center shadow-sm hover:shadow-md transition-shadow;
 }
 
 .food-card {
@@ -100,6 +100,14 @@
 
 .animate-pulse-dot {
   @apply animate-pulse;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
 }
 
 .custom-scrollbar::-webkit-scrollbar {

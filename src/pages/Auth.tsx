@@ -79,7 +79,9 @@ const Auth = () => {
         if (error) throw error;
         if (user) {
           const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+          console.log("Auth: Login success, profile:", profile);
           if (profile && !profile.phone_verified && profile.phone) {
+             console.log("Auth: Triggering OTP verification for:", profile.phone);
              setCurrentPhone(profile.phone);
              await fetch("/api/send-otp", {
                method: "POST",
