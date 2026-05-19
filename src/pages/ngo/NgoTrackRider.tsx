@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import LeafletMap from "@/components/LeafletMap";
 import { ContactVerification } from "@/components/ContactVerification";
+import { openWhatsApp } from "@/lib/utils";
 
 const NgoTrackRider = () => {
   const navigate = useNavigate();
@@ -110,7 +111,7 @@ const NgoTrackRider = () => {
       alert("Rider's contact number is not available.");
       return;
     }
-    setVerification({ open: true, phone, type: "wa" });
+    openWhatsApp(phone);
   };
 
   const executeContact = () => {

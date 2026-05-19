@@ -114,9 +114,6 @@ const PostFood = () => {
     (async () => {
       try {
         console.log("Insert starting...");
-        const pickupCode = Math.floor(1000 + Math.random() * 9000).toString();
-        
-        // Get image URL (wait minimal time or use null)
         const activeUploadPromise = uploadPromise || (imageFile ? uploadImage(user.id, imageFile) : Promise.resolve(null));
         const imageUrl = await Promise.race([
           activeUploadPromise,
@@ -130,7 +127,6 @@ const PostFood = () => {
           location: (form.location || "Available for Pickup").trim(),
           pickup_day: form.pickupDay,
           notes: form.notes.trim(),
-          pickup_code: pickupCode,
           image_url: imageUrl,
           ai_quality_score: 100,
           ai_quality_label: "Safe to Eat",

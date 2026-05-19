@@ -17,19 +17,9 @@ const donorNav = [
 const DonorDashboard = () => {
   const navigate = useNavigate();
   const { user, profile, loading: authLoading, signOut } = useAuth();
-  const [donations, setDonations] = useState<any[]>(() => {
-    try {
-      const cached = localStorage.getItem("cache_d_donations");
-      return cached ? JSON.parse(cached) : [];
-    } catch { return []; }
-  });
-  const [loading, setLoading] = useState(donations.length === 0);
-  const [stats, setStats] = useState(() => {
-    try {
-      const cached = localStorage.getItem("cache_d_stats");
-      return cached ? JSON.parse(cached) : { total: 0, meals: 0, delivered: 0 };
-    } catch { return { total: 0, meals: 0, delivered: 0 }; }
-  });
+  const [donations, setDonations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ total: 0, meals: 0, delivered: 0 });
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [verification, setVerification] = useState<{ open: boolean; phone: string; type: "call" | "wa" | null }>({
     open: false,
@@ -51,7 +41,7 @@ const DonorDashboard = () => {
           .eq("read", false),
         supabase
           .from("food_donations")
-          .select("*, volunteer:profiles!assigned_volunteer_id(id, phone, full_name)")
+          .select("*, volunteer:profiles!left.assigned_volunteer_id(id, phone, full_name)")
           .eq("donor_id", user.id)
           .order("created_at", { ascending: false })
       ]);
@@ -59,8 +49,8 @@ const DonorDashboard = () => {
       setUnreadNotifications(notifRes.count || 0);
 
       const allDonations = donationRes.data || [];
+      console.log("Fetched donations for user", user.id, ":", allDonations);
       setDonations(allDonations.slice(0, 10)); // Local UI limit
-      localStorage.setItem("cache_d_donations", JSON.stringify(allDonations.slice(0, 10)));
 
       // Calculate stats from the full list
       const newStats = {
@@ -70,7 +60,6 @@ const DonorDashboard = () => {
       };
       console.log("Calculated stats:", newStats);
       setStats(newStats);
-      localStorage.setItem("cache_d_stats", JSON.stringify(newStats));
     } catch (error) {
       console.error("Dashboard data fetch error:", error);
     } finally {
@@ -85,7 +74,7 @@ const DonorDashboard = () => {
   useEffect(() => {
     if (authLoading || !user) return;
 
-    fetchData(donations.length === 0);
+    fetchData(true);
 
     // Listen for changes to my donations
     const channel = supabase

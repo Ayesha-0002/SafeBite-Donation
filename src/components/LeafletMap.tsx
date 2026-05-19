@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -98,7 +98,7 @@ const LeafletMap = ({
       // Draw route line
       const points: L.LatLngExpression[] = [];
       if (pickupLat && pickupLng) points.push([pickupLat, pickupLng]);
-      points.push([latitude, longitude]);
+      points.push([safeLat, safeLng]);
       if (dropoffLat && dropoffLng) points.push([dropoffLat, dropoffLng]);
 
       if (points.length > 1) {
@@ -121,7 +121,7 @@ const LeafletMap = ({
         mapInstanceRef.current = null;
       }
     };
-  }, []);
+  }, [latitude, longitude, pickupLat, pickupLng, dropoffLat, dropoffLng, volunteerIcon, pickupIcon, dropoffIcon]);
 
   // Update volunteer marker position
   useEffect(() => {

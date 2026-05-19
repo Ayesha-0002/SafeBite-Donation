@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { toast } from "sonner";
 import { ContactVerification } from "@/components/ContactVerification";
 import { useAuth } from "@/context/AuthContext";
+import { openWhatsApp } from "@/lib/utils";
 
 const VolunteerDashboard = () => {
   const navigate = useNavigate();
@@ -181,9 +182,7 @@ const VolunteerDashboard = () => {
       toast.error("Donor's contact number is not available.");
       return;
     }
-    const cleanPhone = phone.replace(/\D/g, "");
-    const message = encodeURIComponent(`Assalam o Alaikum, I am the SafeBite volunteer. I am reaching out regarding the food pickup.`);
-    window.open(`https://wa.me/${cleanPhone}/?text=${message}`, "_blank");
+    openWhatsApp(phone);
   };
 
   const getImageUrl = (url: string | null) => {

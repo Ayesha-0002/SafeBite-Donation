@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, MapPin, Package, MessageCircle, User, LogOut, Settings, Award, Loader2, Building2, ArrowLeft, Navigation, Phone, Bell } from "lucide-react";
+import { Home, MapPin, Package, MessageCircle, User, LogOut, Settings, Award, Loader2, ArrowLeft, Navigation, Phone, Bell } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -18,8 +18,6 @@ const VolunteerProfile = () => {
   const [profile, setProfile] = useState<any>(authProfile);
   const [stats, setStats] = useState({ pickups: 0, delivered: 0, active: 0, rating: "N/A" });
   const [loading, setLoading] = useState(!authProfile);
-  const [ngoCode, setNgoCode] = useState("");
-  const [joining, setJoining] = useState(false);
 
   const fetchData = async (forceRefresh = false) => {
     if (!user) return;
@@ -58,89 +56,6 @@ const VolunteerProfile = () => {
   useEffect(() => {
     fetchData();
   }, [user, authProfile]);
-
-  const handleJoinNgo = async () => {
-    const code = ngoCode.trim();
-    if (!code) return;
-    setJoining(true);
-    console.log("VolunteerProfile: Attempting to join team with code:", code);
-    
-    try {
-      if (!user) {
-        console.error("VolunteerProfile: No user found in context");
-        return;
-      }
-
-      // Verify if this is a valid profile ID
-      console.log("VolunteerProfile: Verifying NGO code...");
-      const { data: profileCheck, error: checkError } = await supabase
-        .from("profiles")
-        .select("id, full_name, role")
-        .eq("id", code)
-        .maybeSingle();
-
-      if (checkError) {
-        console.error("VolunteerProfile: Check error:", checkError);
-        throw checkError;
-      }
-
-      if (!profileCheck) {
-        toast.error("Invalid code. Person or NGO not found.");
-        return;
-      }
-
-      if (profileCheck.id === user.id) {
-        toast.error("You cannot join your own team!");
-        return;
-      }
-
-      console.log("VolunteerProfile: Found NGO:", profileCheck.full_name);
-      
-      const { error } = await supabase
-        .from("profiles")
-        .update({ organization_id: code })
-        .eq("id", user.id);
-
-      if (error) {
-        console.error("VolunteerProfile: Update error:", error);
-        throw error;
-      }
-
-      toast.success(`Successfully joined ${profileCheck.full_name}'s team! 🎉`);
-      
-      // Update global context first
-      console.log("VolunteerProfile: Refreshing global profile...");
-      await refreshProfile();
-      
-      // Then fetch local component stats
-      await fetchData(true);
-      setNgoCode("");
-    } catch (error: any) {
-      console.error("VolunteerProfile: Join team failed:", error);
-      toast.error(error.message || "Failed to join. Please try again.");
-    } finally {
-      console.log("VolunteerProfile: Joining process finished");
-      setJoining(false);
-    }
-  };
-
-  const handleLeaveNgo = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { error } = await supabase
-        .from("profiles")
-        .update({ organization_id: null })
-        .eq("id", user.id);
-
-      if (error) throw error;
-      toast.success("Successfully left the NGO team.");
-      fetchData();
-    } catch (err) {
-      toast.error("Failed to leave team.");
-    }
-  };
 
   const handleLogout = async () => {
     signOut();
@@ -224,52 +139,6 @@ const VolunteerProfile = () => {
               )}
             </div>
           </div>
-        </div>
-
-        {/* NGO Team Section */}
-        <div className="glass-card-elevated p-4 mb-6">
-          <div className="flex items-center gap-2 text-primary font-semibold text-sm mb-3">
-            <Building2 size={18} />
-            <span>NGO Team Placement</span>
-          </div>
-          
-          {profile?.organization_id ? (
-            <div className="bg-primary/5 p-4 rounded-xl border border-primary/10">
-              <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-2">My Team ID</p>
-              <p className="text-xs font-mono font-medium text-foreground bg-white/50 p-2 rounded-lg border border-border/50 break-all mb-4">{profile.organization_id}</p>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-success font-bold flex items-center gap-1 uppercase">
-                  <Award size={10} /> Active Member
-                </span>
-                <button 
-                  onClick={handleLeaveNgo}
-                  className="text-[10px] font-bold text-destructive hover:underline"
-                >
-                  Leave Team
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground font-body">Not part of any NGO team yet. Enter Join Code to become their official rider.</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={ngoCode}
-                  onChange={(e) => setNgoCode(e.target.value)}
-                  placeholder="Paste NGO Join Code"
-                  className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-xs focus:ring-2 focus:ring-primary/20 outline-none"
-                />
-                <button
-                  onClick={handleJoinNgo}
-                  disabled={joining}
-                  className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-xs font-semibold disabled:opacity-50"
-                >
-                  {joining ? "Joining..." : "Join Team"}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="flex flex-col gap-2">

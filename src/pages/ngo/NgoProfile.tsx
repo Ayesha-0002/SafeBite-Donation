@@ -21,11 +21,10 @@ const NgoProfile = () => {
   useEffect(() => {
     const fetch = async () => {
       if (!user) return;
-      if (!authProfile) {
-        const { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
-        setProfile(data || { email: user.email });
-        setLoading(false);
-      }
+      // Always fetch the latest profile directly to ensure 'id' is present and updated
+      const { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      setProfile(data || authProfile || { email: user.email });
+      setLoading(false);
     };
     fetch();
   }, [user, authProfile]);
@@ -100,27 +99,6 @@ const NgoProfile = () => {
             ) : (
               <p className="text-sm font-medium text-foreground">{profile?.phone || user?.user_metadata?.phone || "—"}</p>
             )}
-          </div>
-        </div>
-
-        <div className="glass-card-elevated p-5 space-y-3 relative overflow-hidden bg-primary/5 border-primary/10">
-          <div className="flex items-center justify-between text-primary font-bold text-sm">
-            <div className="flex items-center gap-2">
-              <UserPlus size={20} />
-              <span>Team Join Code</span>
-            </div>
-            <button 
-              onClick={copyToClipboard}
-              className="text-[10px] font-black uppercase tracking-tighter bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-all active:scale-95 shadow-sm"
-            >
-              Copy Code
-            </button>
-          </div>
-          <p className="text-[11px] text-muted-foreground font-body leading-relaxed">
-            Riders can enter this code in their Profile &gt; Settings to join your official delivery team.
-          </p>
-          <div className="bg-muted p-3 rounded-2xl font-mono text-center text-xs border border-border select-all break-all text-foreground font-bold shadow-inner">
-            {profile?.id || "Loading code..."}
           </div>
         </div>
 

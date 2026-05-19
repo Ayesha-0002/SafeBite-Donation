@@ -187,7 +187,7 @@ const StatisticsTab = () => {
       try {
         console.log("Admin: Fetching stats...");
         const [donationsRes, rolesRes] = await Promise.all([
-          supabase.from("food_donations").select("*, donor:profiles(full_name)"),
+          supabase.from("food_donations").select("*"),
           supabase.from("user_roles").select("role"),
         ]);
         if (donationsRes.error) throw donationsRes.error;
@@ -370,12 +370,14 @@ const DonationsTab = () => {
   const fetchDonations = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data: donations, error } = await supabase
         .from("food_donations")
-        .select("*, donor:profiles(full_name, email)")
+        .select("*, donor:profiles!donor_id(full_name, email)")
         .order("created_at", { ascending: false });
+      
       if (error) throw error;
-      setDonations(data || []);
+      
+      setDonations(donations || []);
     } catch (e: any) {
       toast.error("Failed to load donations: " + e.message);
     } finally {

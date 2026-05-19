@@ -44,7 +44,6 @@ const AuthGuard = ({ children }: { children: React.ReactNode }) => {
     // Only proceed if auth information is ready
     if (loading || error) return;
     
-    // ... [existing logic for authPages, selectRolePage, etc.]
     const authPages = ["/", "/login", "/register"];
     const selectRolePage = "/select-role";
     const blockedPage = "/blocked";
@@ -53,38 +52,59 @@ const AuthGuard = ({ children }: { children: React.ReactNode }) => {
     const isSelectRolePage = pathname === selectRolePage;
     const isBlockedPage = pathname === blockedPage;
 
+    const userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
+    const hasAnyRole = userRoles.length > 0 || !!user?.user_metadata?.role || !!profile?.role;
+    const needsVerification = user && profile && profile.phone && !profile.phone_verified;
+
+    console.log("[AuthGuard] state:", { 
+      pathname, 
+      user: !!user, 
+      profile: !!profile, 
+      needsVerification, 
+      inVerificationMode,
+      hasAnyRole
+    });
+
     // 1. Unauthenticated users: must be on auth pages
     if (!user) {
-      if (!isAuthPage && pathname !== "/login") navigate("/login", { replace: true });
+      if (!isAuthPage && pathname !== "/login") {
+        console.log("[AuthGuard] Redirecting unauthenticated user to login");
+        navigate("/login", { replace: true });
+      }
       return;
     }
 
+    // Wait for profile to load for authenticated users
+    if (!profile) return;
+
     // 2. Blocked users
-    if (profile?.is_blocked && !isBlockedPage && pathname !== blockedPage) {
+    if (profile?.is_blocked && !isBlockedPage) {
+      console.log("[AuthGuard] Redirecting blocked user to blocked page");
       navigate(blockedPage, { replace: true });
       return;
     }
     
     // 3. Unverified users
-    // If we're still loading profile, don't redirect yet
-    if (loading) return; 
-
-    if (user && profile && !profile.phone_verified && !isAuthPage && !isSelectRolePage && !isBlockedPage && pathname !== "/login" && !inVerificationMode) {
+    if (needsVerification && !isAuthPage && !isSelectRolePage && !isBlockedPage && !inVerificationMode) {
+       console.log("[AuthGuard] User needs verification, redirecting to login");
        navigate("/login", { replace: true });
        return;
     }
 
     // 4. No role
-    const userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
-    const hasAnyRole = userRoles.length > 0 || !!user?.user_metadata?.role || !!profile?.role;
-    
-    if (!hasAnyRole && !isSelectRolePage && !isBlockedPage && pathname !== selectRolePage) {
+    if (!hasAnyRole && !isSelectRolePage && !isBlockedPage && !isAuthPage) {
+      console.log("[AuthGuard] No role found, redirecting to select-role");
       navigate(selectRolePage, { replace: true });
       return;
     }
     
     // 5. Authenticated users on Auth pages/SelectRole
     if (isAuthPage || isSelectRolePage) {
+      if (needsVerification && !isSelectRolePage) {
+        console.log("[AuthGuard] Authenticated but unverified, staying on auth page for OTP");
+        return;
+      }
+
       let target = selectRolePage;
       if (hasAnyRole) {
         const allRoles = [...userRoles, profile?.role, user.user_metadata?.role].filter(Boolean);
@@ -95,6 +115,7 @@ const AuthGuard = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (pathname !== target) {
+        console.log(`[AuthGuard] Redirecting authenticated user to ${target}`);
         navigate(target, { replace: true });
       }
       return;

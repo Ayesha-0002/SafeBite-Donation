@@ -115,8 +115,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const refreshProfile = async () => {
     if (user) {
+      setLoading(true);
       const p = await fetchProfile(user.id);
       setProfile(p);
+      setLoading(false);
     }
   };
 
@@ -158,19 +160,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     initAuth();
     
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log(`[AuthContext] event: ${event}`);
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            setLoading(true); // Ensure we show loader while syncing profile
             setSession(session);
             setUser(session?.user || null);
             if (session?.user) {
                 const p = await fetchProfile(session.user.id);
                 setProfile(p);
             }
+            setLoading(false);
         } else if (event === 'SIGNED_OUT') {
             setSession(null);
             setUser(null);
             setProfile(null);
+            setLoading(false);
         }
-        setLoading(false);
     });
 
     return () => {
