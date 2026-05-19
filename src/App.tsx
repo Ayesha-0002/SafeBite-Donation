@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import Auth from "./pages/Auth";
 import SelectRole from "./pages/SelectRole";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -34,99 +34,77 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 const queryClient = new QueryClient();
 
 const AuthGuard = ({ children }: { children: React.ReactNode }) => {
-  const { user, profile, loading, error } = useAuth();
+  const { user, profile, loading, error, inVerificationMode } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
+  const lastRedirect = React.useRef<string | null>(null);
 
   useEffect(() => {
-    console.log("[AuthGuard] state changed:", { loading, error, user: !!user, profile: !!profile, pathname });
-    
-    const isAuthPage = ["/", "/login", "/register"].includes(pathname);
-
-    // Speed up: If we have a user but loading is still true, check for cached role
-    if (loading && user) {
-      const cachedRole = localStorage.getItem(`sb_role_${user.id}`);
-      if (cachedRole && isAuthPage) {
-        console.log("[AuthGuard] Found cached role, instant redirect:", cachedRole);
-        const roleMap: Record<string, string> = {
-          donor: "/donor",
-          ngo: "/ngo",
-          volunteer: "/volunteer",
-          admin: "/admin",
-        };
-        navigate(roleMap[cachedRole] || "/select-role", { replace: true });
-        return;
-      }
-    }
-
+    // Only proceed if auth information is ready
     if (loading || error) return;
+    
+    // ... [existing logic for authPages, selectRolePage, etc.]
+    const authPages = ["/", "/login", "/register"];
+    const selectRolePage = "/select-role";
+    const blockedPage = "/blocked";
+    
+    const isAuthPage = authPages.includes(pathname);
+    const isSelectRolePage = pathname === selectRolePage;
+    const isBlockedPage = pathname === blockedPage;
 
     // 1. Unauthenticated users: must be on auth pages
-    if (!user && !isAuthPage) {
-      console.log("[AuthGuard] Unauthenticated user on protected page, redirecting to login");
-      navigate("/login", { replace: true });
+    if (!user) {
+      if (!isAuthPage && pathname !== "/login") navigate("/login", { replace: true });
       return;
     }
 
-    // 2. Authenticated users on Auth pages: redirect to dashboard or role selection
-    if (user && isAuthPage) {
-      const userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
-      const metadataRole = user.user_metadata?.role;
-      const profileRole = profile?.role;
-      
-      console.log("[AuthGuard] Authenticated user on auth page, redirecting", { userRoles, metadataRole, profileRole });
+    // 2. Blocked users
+    if (profile?.is_blocked && !isBlockedPage && pathname !== blockedPage) {
+      navigate(blockedPage, { replace: true });
+      return;
+    }
+    
+    // 3. Unverified users
+    // If we're still loading profile, don't redirect yet
+    if (loading) return; 
 
-      if (userRoles.includes("admin")) {
-        navigate("/admin", { replace: true });
-      } else if (userRoles.length === 1) {
-        const roleMap: Record<string, string> = {
-          donor: "/donor",
-          ngo: "/ngo",
-          volunteer: "/volunteer",
-          admin: "/admin",
-        };
-        navigate(roleMap[userRoles[0]] || "/select-role", { replace: true });
-      } else if (profileRole || metadataRole) {
-        const roleMap: Record<string, string> = {
-          donor: "/donor",
-          ngo: "/ngo",
-          volunteer: "/volunteer",
-          admin: "/admin",
-        };
-        const targetRole = profileRole || metadataRole;
-        navigate(roleMap[targetRole] || "/select-role", { replace: true });
-      } else {
-        navigate("/select-role", { replace: true });
+    if (user && profile && !profile.phone_verified && !isAuthPage && !isSelectRolePage && !isBlockedPage && pathname !== "/login" && !inVerificationMode) {
+       navigate("/login", { replace: true });
+       return;
+    }
+
+    // 4. No role
+    const userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
+    const hasAnyRole = userRoles.length > 0 || !!user?.user_metadata?.role || !!profile?.role;
+    
+    if (!hasAnyRole && !isSelectRolePage && !isBlockedPage && pathname !== selectRolePage) {
+      navigate(selectRolePage, { replace: true });
+      return;
+    }
+    
+    // 5. Authenticated users on Auth pages/SelectRole
+    if (isAuthPage || isSelectRolePage) {
+      let target = selectRolePage;
+      if (hasAnyRole) {
+        const allRoles = [...userRoles, profile?.role, user.user_metadata?.role].filter(Boolean);
+        if (allRoles.includes("admin")) target = "/admin";
+        else if (allRoles.includes("donor")) target = "/donor";
+        else if (allRoles.includes("ngo")) target = "/ngo";
+        else if (allRoles.includes("volunteer")) target = "/volunteer";
+      }
+
+      if (pathname !== target) {
+        navigate(target, { replace: true });
       }
       return;
     }
-
-    // 3. Blocked users: must be on blocked page
-    if (user && profile?.is_blocked && pathname !== "/blocked") {
-      console.log("[AuthGuard] User is blocked, redirecting to blocked page");
-      navigate("/blocked", { replace: true });
-      return;
-    }
-
-    // 4. Authenticated users with NO permissions/roles: must go to select-role
-    const userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
-    const hasAnyRole = userRoles.length > 0 || !!user?.user_metadata?.role || !!profile?.role;
-
-    if (user && !hasAnyRole && !pathname.includes("select-role") && pathname !== "/blocked" && !isAuthPage) {
-      console.log("[AuthGuard] User has no role, redirecting to select-role");
-      navigate("/select-role", { replace: true });
-    }
-  }, [user, profile, loading, error, navigate, pathname]);
+  }, [user, profile, loading, error, navigate, pathname, inVerificationMode]);
 
   const isAuthPage = ["/", "/login", "/register", "/select-role"].includes(pathname);
   const isDashboard = ["/donor", "/ngo", "/volunteer", "/admin"].some(path => pathname.startsWith(path));
   
-  // If we have a user and we are on an auth page, we are DEFINITELY about to redirect.
-  // We should show the loader to prevent flashing the login form or the wrong dashboard.
-  const isPendingRedirect = user && isAuthPage;
-  
-  const showLoader = loading || isPendingRedirect; 
+  const showLoader = loading; 
 
   if (error) {
     return (

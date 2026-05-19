@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Home, Package, CheckCircle, Bell, Loader2, Truck, User, MessageCircle, Eye, UserPlus, MapPin, Utensils, LogOut, Phone } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -34,7 +34,7 @@ const NgoDashboard = () => {
   const [selectedVolunteer, setSelectedVolunteer] = useState<string>("");
   const [stats, setStats] = useState({ received: 0, inProgress: 0, available: 0 });
 
-  const fetchData = async (showLoading = false) => {
+  const fetchData = useCallback(async (showLoading = false) => {
     if (!user) return;
     console.log("NGO: Fetching data...");
     // We only set loading if we don't have cached data to show
@@ -82,7 +82,7 @@ const NgoDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, donations.length]);
 
   const handleLogout = () => {
     signOut();
@@ -111,7 +111,7 @@ const NgoDashboard = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, authLoading]);
+  }, [user, authLoading, fetchData]);
 
   const getImageUrl = (url: string | null) => {
     if (!url) return null;

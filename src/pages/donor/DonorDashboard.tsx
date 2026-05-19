@@ -42,8 +42,8 @@ const DonorDashboard = () => {
     if (showLoading) setLoading(true);
     try {
       console.log("Fetching dashboard data for user:", user.id);
-      // Parallel fetching for speed and accuracy
-      const [notifRes, donationRes, statsRes] = await Promise.all([
+      // Combine queries if possible or just ensure they are efficient
+      const [notifRes, donationRes] = await Promise.all([
         supabase
           .from("notifications")
           .select("*", { count: "exact", head: true })
@@ -54,32 +54,27 @@ const DonorDashboard = () => {
           .select("*, volunteer:profiles!assigned_volunteer_id(id, phone, full_name)")
           .eq("donor_id", user.id)
           .order("created_at", { ascending: false })
-          .limit(10),
-        supabase
-          .from("food_donations")
-          .select("quantity, status")
-          .eq("donor_id", user.id)
       ]);
       
       setUnreadNotifications(notifRes.count || 0);
 
-      const allRecent = donationRes.data || [];
-      setDonations(allRecent);
-      localStorage.setItem("cache_d_donations", JSON.stringify(allRecent));
+      const allDonations = donationRes.data || [];
+      setDonations(allDonations.slice(0, 10)); // Local UI limit
+      localStorage.setItem("cache_d_donations", JSON.stringify(allDonations.slice(0, 10)));
 
-      const allStatsData = statsRes.data || [];
+      // Calculate stats from the full list
       const newStats = {
-        total: allStatsData.length,
-        meals: allStatsData.reduce((sum, d) => sum + Number(d.quantity || 0), 0),
-        delivered: allStatsData.filter(d => d.status === "delivered").length,
+        total: allDonations.length,
+        meals: allDonations.reduce((sum, d) => sum + Number(d.quantity || 0), 0),
+        delivered: allDonations.filter(d => d.status === "delivered").length,
       };
-      console.log("Fetched new stats:", newStats);
+      console.log("Calculated stats:", newStats);
       setStats(newStats);
       localStorage.setItem("cache_d_stats", JSON.stringify(newStats));
     } catch (error) {
       console.error("Dashboard data fetch error:", error);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [user]);
 

@@ -35,14 +35,18 @@ app.post("/api/send-otp", async (req, res) => {
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   otpStore.set(phone, { otp, expires: Date.now() + 2 * 60 * 1000 }); // 2 min expiry
 
-  if (twilioClient && process.env.TWILIO_PHONE_NUMBER) {
+  if (twilioClient && (process.env.TWILIO_PHONE_NUMBER || process.env.TWILIO_WHATSAPP_NUMBER)) {
     try {
+      const isWhatsApp = !!process.env.TWILIO_WHATSAPP_NUMBER;
+      const from = isWhatsApp ? `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}` : process.env.TWILIO_PHONE_NUMBER!;
+      const to = isWhatsApp ? `whatsapp:${phone}` : phone;
+
       await twilioClient.messages.create({
         body: `Your SafeBite OTP is ${otp}. Valid for 2 minutes.`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: phone,
+        from,
+        to,
       });
-      res.json({ success: true, message: "OTP sent via SMS" });
+      res.json({ success: true, message: `OTP sent via ${isWhatsApp ? 'WhatsApp' : 'SMS'}` });
     } catch (err: any) {
       console.error("Twilio error:", err);
       res.status(500).json({ error: "Failed to send SMS", details: err.message });

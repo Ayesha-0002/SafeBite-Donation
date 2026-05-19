@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Home, MapPin, Package, MessageCircle, User, Navigation, Bell, Loader2, Utensils, LogOut, Phone, Eye } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -37,7 +37,7 @@ const VolunteerDashboard = () => {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [stats, setStats] = useState({ done: 0, active: 0, rating: "0" });
 
-  const fetchData = async (showLoading = true) => {
+  const fetchData = useCallback(async (showLoading = true) => {
     if (!user) return;
     if (showLoading) setLoading(true);
 
@@ -96,7 +96,7 @@ const VolunteerDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
   const handleLogout = () => {
     signOut();
@@ -127,7 +127,7 @@ const VolunteerDashboard = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, authLoading]);
+  }, [user, authLoading, fetchData]);
 
   const handleClaimDonation = async (donationId: string) => {
     if (!user) return;

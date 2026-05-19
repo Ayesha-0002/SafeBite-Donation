@@ -110,14 +110,10 @@ const PostFood = () => {
     setStep("ai-check"); 
     setIsSubmitting(true);
 
-    // OPTIMISTIC UI: Transition to success immediately
-    setStep("done");
-    toast.success("Donation Successful! We are notifying volunteers...");
-
     // Perform database operations in the background
     (async () => {
       try {
-        console.log("Optimistic insert starting...");
+        console.log("Insert starting...");
         const pickupCode = Math.floor(1000 + Math.random() * 9000).toString();
         
         // Get image URL (wait minimal time or use null)
@@ -150,10 +146,8 @@ const PostFood = () => {
           .select();
 
         if (dbError) {
-          console.error("Optimistic Insert Failed:", dbError);
-          // If insert fails, we already showed success. We should notify the user quietly.
-          toast.error("Database sync failed. Please check your history in a moment.");
-          return;
+          console.error("Insert Failed:", dbError);
+          throw new Error(dbError.message || "Database insert failed");
         }
 
         const donation = donationData?.[0];
@@ -189,9 +183,14 @@ const PostFood = () => {
           await supabase.from("notifications").insert(notifications);
         }
 
+        // Set to success only after success
+        setStep("done");
+        toast.success("Donation Successful! We are notifying volunteers...");
+
       } catch (err: any) {
         console.error("Critical Background Error:", err);
-        toast.error("Post sync failed: " + (err.message || "Unknown error"));
+        toast.error("Failed to post donation: " + (err.message || "Unknown error"));
+        setStep("form"); // Back to form
       } finally {
         setIsSubmitting(false);
       }

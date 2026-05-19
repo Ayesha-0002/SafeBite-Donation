@@ -13,17 +13,25 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
   const { user, profile, loading } = useAuth();
 
   useEffect(() => {
+    // Wait for auth check to finish
     if (loading) return;
 
+    // Wait until we have a user, or if we do, wait for the profile
     if (!user) {
       console.log("ProtectedRoute: No user, redirecting to home");
       navigate("/", { replace: true });
       return;
     }
 
-    if (profile?.is_blocked) {
+    // Only redirect to block if profile is loaded and specifically flagged as blocked
+    if (profile && profile.is_blocked) {
       console.log("ProtectedRoute: User blocked, redirecting");
       navigate("/blocked", { replace: true });
+      return;
+    }
+    
+    // Fallback: If no profile yet, but we are authenticated, wait for it instead of redirecting
+    if (!profile) {
       return;
     }
 

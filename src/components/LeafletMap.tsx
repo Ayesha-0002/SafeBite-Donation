@@ -28,33 +28,33 @@ const LeafletMap = ({
   const dropoffMarkerRef = useRef<L.Marker | null>(null);
   const routeLineRef = useRef<L.Polyline | null>(null);
 
-  // Create custom icons
-  const volunteerIcon = L.divIcon({
+  // Create custom icons (Memoized to prevent recreation)
+  const volunteerIcon = useMemo(() => L.divIcon({
     html: `<div style="background: hsl(160, 84%, 39%); width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M12 2L19 21l-7-4-7 4z"/></svg>
     </div>`,
     className: "custom-marker",
     iconSize: [32, 32],
     iconAnchor: [16, 16],
-  });
+  }), []);
 
-  const pickupIcon = L.divIcon({
+  const pickupIcon = useMemo(() => L.divIcon({
     html: `<div style="background: hsl(38, 92%, 50%); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
     </div>`,
     className: "custom-marker",
     iconSize: [28, 28],
     iconAnchor: [14, 14],
-  });
+  }), []);
 
-  const dropoffIcon = L.divIcon({
+  const dropoffIcon = useMemo(() => L.divIcon({
     html: `<div style="background: hsl(0, 72%, 51%); width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
     </div>`,
     className: "custom-marker",
     iconSize: [28, 28],
     iconAnchor: [14, 14],
-  });
+  }), []);
 
   // Initialize map
   useEffect(() => {
@@ -132,12 +132,12 @@ const LeafletMap = ({
     // Update route line
     if (routeLineRef.current) {
       const points: L.LatLngExpression[] = [];
-      if (pickupLat && pickupLng) points.push([pickupLat, pickupLng]);
+      if (pickupLat !== undefined && pickupLng !== undefined) points.push([pickupLat, pickupLng]);
       points.push([latitude, longitude]);
-      if (dropoffLat && dropoffLng) points.push([dropoffLat, dropoffLng]);
+      if (dropoffLat !== undefined && dropoffLng !== undefined) points.push([dropoffLat, dropoffLng]);
       routeLineRef.current.setLatLngs(points);
     }
-  }, [latitude, longitude]);
+  }, [latitude, longitude, pickupLat, pickupLng, dropoffLat, dropoffLng]);
 
   return <div ref={mapRef} className={`w-full ${className}`} style={{ minHeight: "280px" }} />;
 };

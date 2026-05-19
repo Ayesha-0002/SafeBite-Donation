@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { format, isValid } from "date-fns";
 import React from "react";
 import LeafletMap from "@/components/LeafletMap";
@@ -920,17 +921,25 @@ const RiderAnalyticsTab = () => {
       setLoading(true);
       setError(null);
       try {
-        const [trackingRes, profilesRes, ratingsRes] = await Promise.all([
+        const [trackingRes, profilesRes, ratingsRes, donationsRes] = await Promise.all([
           supabase.from("volunteer_tracking").select("*"),
           supabase.from("profiles").select("id, full_name, email, role, phone").eq("role", "volunteer"),
           supabase.from("donation_ratings").select("*"),
+          supabase.from("food_donations").select("id, assigned_volunteer_id, status").not("assigned_volunteer_id", "is", null)
         ]);
+        console.log("Analytics: trackingRes", trackingRes);
+        console.log("Analytics: profilesRes", profilesRes);
+        console.log("Analytics: ratingsRes", ratingsRes);
+        console.log("Analytics: donationsRes", donationsRes);
+
         if (trackingRes.error) throw trackingRes.error;
         if (profilesRes.error) throw profilesRes.error;
+        if (donationsRes.error) throw donationsRes.error;
 
         const tracking = trackingRes.data || [];
         const volunteers = profilesRes.data || [];
         const ratings = ratingsRes.data || [];
+        const donations = donationsRes.data || [];
 
         const ratingsMap = new Map<string, { total: number; count: number }>();
         ratings.forEach(r => {
@@ -940,35 +949,42 @@ const RiderAnalyticsTab = () => {
           ratingsMap.set(r.rated_user_id, stats);
         });
 
+        // Group donation status by volunteer for better accuracy
+        const donationStatusMap = new Map<string, { active: number; completed: number }>();
+        donations.forEach(d => {
+          const vId = d.assigned_volunteer_id;
+          if (!vId) return;
+          const stats = donationStatusMap.get(vId) || { active: 0, completed: 0 };
+          if (d.status === "delivered") stats.completed++;
+          else stats.active++;
+          donationStatusMap.set(vId, stats);
+        });
+        
         const riderMap = new Map<string, any>();
         volunteers.forEach(v => {
+          if (!v.id) return;
+          const donationStats = donationStatusMap.get(v.id) || { active: 0, completed: 0 };
+          
           riderMap.set(v.id, {
             id: v.id,
             name: v.full_name || "Unknown",
             email: v.email || "N/A",
             phone: v.phone || "N/A",
-            activeTasks: 0,
-            completedDeliveries: 0,
+            activeTasks: donationStats.active,
+            completedDeliveries: donationStats.completed,
             avgRating: "N/A",
             lastSeen: null,
-            status: "offline"
+            status: donationStats.active > 0 ? "active" : "offline"
           });
         });
 
         tracking.forEach(t => {
-          if (!riderMap.has(t.volunteer_id)) return;
-          const rider = riderMap.get(t.volunteer_id);
-          
-          if (t.status === "delivered") {
-            rider.completedDeliveries++;
-          } else {
-            rider.activeTasks++;
-            rider.status = "active";
-          }
-          
-          const trackDate = new Date(t.updated_at);
-          if (!rider.lastSeen || trackDate > new Date(rider.lastSeen)) {
-            rider.lastSeen = t.updated_at;
+          if (riderMap.has(t.volunteer_id)) {
+            const rider = riderMap.get(t.volunteer_id);
+            const trackDate = new Date(t.updated_at);
+            if (!rider.lastSeen || trackDate > new Date(rider.lastSeen)) {
+              rider.lastSeen = t.updated_at;
+            }
           }
         });
 
@@ -1070,11 +1086,11 @@ const RiderAnalyticsTab = () => {
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-black shadow-sm group-hover:scale-105 transition-transform">
-                        {r.name.slice(0, 1)}
+                        {(r.name || "?").slice(0, 1)}
                       </div>
                       <div>
-                        <p className="font-bold text-sm text-foreground">{r.name}</p>
-                        <p className="text-[10px] text-muted-foreground font-mono">{r.phone}</p>
+                        <p className="font-bold text-sm text-foreground">{r.name || "Unknown"}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono">{r.phone || "N/A"}</p>
                       </div>
                     </div>
                   </TableCell>
@@ -1092,7 +1108,7 @@ const RiderAnalyticsTab = () => {
                   </TableCell>
                   <TableCell className="text-center">
                     <Badge variant={r.status === "active" ? "secondary" : "outline"} className={r.status === "active" ? "bg-success/10 text-success border-success/20 animate-pulse" : "text-muted-foreground/40 border-muted"}>
-                      {r.status.toUpperCase()}
+                      {(r.status || "OFFLINE").toUpperCase()}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right text-[10px] text-muted-foreground font-bold uppercase">
@@ -1860,7 +1876,7 @@ const RiderTrackerTab = () => {
   const [error, setError] = useState<string | null>(null);
   const [trackingLogs, setTrackingLogs] = useState<any[]>([]);
 
-  const fetchRiders = async () => {
+  const fetchRiders = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -1907,16 +1923,29 @@ const RiderTrackerTab = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchRiders();
-    const channel = supabase
-      .channel('admin-rider-tracking')
-      .on('postgres_changes', { event: '*', table: 'volunteer_tracking' }, fetchRiders)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+    
+    // Use a unique channel ID to avoid "already subscribed" errors during rapid remounts
+    const channelId = `admin-rider-tracking-${Math.random().toString(36).substring(7)}`;
+    const channel = supabase.channel(channelId);
+    
+    channel
+      .on('postgres_changes', { event: '*', table: 'volunteer_tracking' }, () => {
+        fetchRiders();
+      })
+      .subscribe((status) => {
+        if (status !== 'SUBSCRIBED') {
+          console.log(`Realtime channel status: ${status}`);
+        }
+      });
+      
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchRiders]);
 
   const activeRiders = useMemo(() => riders.filter(r => r.status && r.status !== 'delivered'), [riders]);
   const completedRiders = useMemo(() => riders.filter(r => r.status === 'delivered').slice(0, 50), [riders]);
@@ -2168,6 +2197,19 @@ const UserManagementTab = () => {
   const [filterToday, setFilterToday] = useState(false);
   const [roleFilter, setRoleFilter] = useState("all");
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [userActivity, setUserActivity] = useState<any[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+
+  const fetchUserActivity = async (userId: string) => {
+    setActivityLoading(true);
+    const { data } = await supabase
+      .from("food_donations")
+      .select("*")
+      .or(`donor_id.eq.${userId},assigned_volunteer_id.eq.${userId}`)
+      .order("created_at", { ascending: false });
+    setUserActivity(data || []);
+    setActivityLoading(false);
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -2286,7 +2328,7 @@ const UserManagementTab = () => {
           return (
             <div 
               key={u.id} 
-              onClick={() => setSelectedUser(u)}
+              onClick={() => { setSelectedUser(u); fetchUserActivity(u.id); }}
               className={`glass-card p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in hover:bg-muted/20 cursor-pointer transition-all ${u.is_blocked ? "opacity-75 bg-destructive/5" : ""}`}
             >
               <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -2301,9 +2343,9 @@ const UserManagementTab = () => {
                   </div>
                   <p className="text-[11px] text-muted-foreground font-body truncate">{u.email}</p>
                   <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="secondary" className="bg-primary/5 text-primary text-[9px] py-0 h-4 uppercase font-black">{u.role}</Badge>
+                    <Badge variant="secondary" className="bg-primary/5 text-primary text-[9px] py-0 h-4 uppercase font-black">{u.role || "unknown"}</Badge>
                     <span className="text-[10px] text-muted-foreground font-body font-medium flex items-center gap-1">
-                      <Calendar size={10} /> {safeFormat(u.created_at, "dd MMM yyyy")}
+                      <Calendar size={10} /> {safeFormat(u.created_at || new Date().toISOString(), "dd MMM yyyy")}
                     </span>
                   </div>
                 </div>
@@ -2378,6 +2420,29 @@ const UserManagementTab = () => {
                       </div>
                     </div>
                   </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h5 className="text-xs font-black text-foreground uppercase tracking-widest">Recent Activity</h5>
+                  {activityLoading ? (
+                    <div className="text-center py-4 text-muted-foreground">Loading activity...</div>
+                  ) : (
+                    <div className="max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                      {userActivity.length > 0 ? (
+                        userActivity.map(a => (
+                          <div key={a.id} className="p-3 bg-muted/20 rounded-xl flex items-center justify-between">
+                            <div>
+                                <p className="text-xs font-bold text-foreground truncate max-w-[150px]">{a.title}</p>
+                                <p className="text-[9px] text-muted-foreground">{safeFormat(a.created_at, "dd MMM, hh:mm a")}</p>
+                            </div>
+                            <Badge variant={a.status === 'delivered' ? 'secondary' : 'outline'} className="text-[9px]">{a.status}</Badge>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic text-center py-4">No recent activity.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-4 flex gap-3">

@@ -10,6 +10,8 @@ interface AuthContextType {
   error: string | null;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
+  inVerificationMode: boolean;
+  setInVerificationMode: (value: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -20,6 +22,8 @@ const AuthContext = createContext<AuthContextType>({
   error: null,
   refreshProfile: async () => {},
   signOut: async () => {},
+  inVerificationMode: false,
+  setInVerificationMode: () => {},
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -38,6 +42,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [initialized, setInitialized] = useState(false);
+  const [inVerificationMode, setInVerificationMode] = useState(false);
 
   // Speed optimization: Read from local storage before any network call
   useEffect(() => {
@@ -47,9 +53,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (cachedProfile) setProfile(JSON.parse(cachedProfile));
     
     // If we have cached profile, we can show UI immediately while revalidating
-    if (cachedProfile) {
-      setLoading(false);
-    }
+    // BUT we must keep loading = true until verified by Supabase
   }, []);
 
   const signOut = async () => {
@@ -117,75 +121,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
-    let mounted = true;
-
+    if (initialized) return;
+    
     const initAuth = async () => {
+      setInitialized(true);
       const url = import.meta.env.VITE_SUPABASE_URL;
       const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-      console.log("AuthProvider: initAuth starting", {
-        url: url ? "SET" : "MISSING",
-        key: key ? "SET" : "MISSING"
-      });
-
       if (!url || !key) {
-        setError("Supabase configuration is missing. Please check your environment variables.");
+        setError("Supabase configuration is missing.");
         setLoading(false);
         return;
       }
-      const safetyTimeout = setTimeout(() => {
-        if (mounted) {
-          console.warn("AuthProvider: initAuth safety timeout reached, forcing loading false");
-          setLoading(false);
-        }
-      }, 1500); // Reduced from 3000 to 1500 for snappier feel
-
+      
       try {
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        console.log("AuthProvider: initAuth getSession result", { hasSession: !!session, error: sessionError });
-        
-        if (mounted) {
-          setSession(session);
-          const currentUser = session?.user || null;
-          setUser(currentUser);
-          
-          if (currentUser) {
-            localStorage.setItem("sb_user_cache", JSON.stringify(currentUser));
-          } else {
-            localStorage.removeItem("sb_user_cache");
-            localStorage.removeItem("sb_profile_cache");
-          }
-          
-          // SPEED OPTIMIZATION: If we have a user and a cached profile, we can stop loading right now
-          if (currentUser && profile && mounted) {
-            setLoading(false);
-          }
-          
-          if (currentUser) {
-            console.log("AuthProvider: initAuth fetching profile for", currentUser.id);
-            const p = await fetchProfile(currentUser.id);
-            console.log("AuthProvider: initAuth profile fetched", { hasProfile: !!p });
-            if (mounted) {
-              setProfile(p);
-              setLoading(false); // Ensure loading is false after profile is fetched
-            }
-          } else {
-            setLoading(false);
-          }
-        }
-      } catch (error) {
-        console.error("AuthProvider: initAuth error:", error);
-        if (mounted) setLoading(false);
-      } finally {
-        clearTimeout(safetyTimeout);
-      }
-    };
-
-    initAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth Event:", event);
-      if (mounted) {
+        const { data: { session } } = await supabase.auth.getSession();
         setSession(session);
         const currentUser = session?.user || null;
         setUser(currentUser);
@@ -193,25 +143,45 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (currentUser) {
           localStorage.setItem("sb_user_cache", JSON.stringify(currentUser));
           const p = await fetchProfile(currentUser.id);
-          if (mounted) setProfile(p);
+          setProfile(p);
         } else {
-          setUser(null);
-          setProfile(null);
           localStorage.removeItem("sb_user_cache");
           localStorage.removeItem("sb_profile_cache");
         }
+      } catch (error) {
+        console.error("AuthProvider: initAuth error:", error);
+      } finally {
         setLoading(false);
       }
+    };
+
+    initAuth();
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            setSession(session);
+            setUser(session?.user || null);
+            if (session?.user) {
+                const p = await fetchProfile(session.user.id);
+                setProfile(p);
+            }
+        } else if (event === 'SIGNED_OUT') {
+            setSession(null);
+            setUser(null);
+            setProfile(null);
+        }
+        setLoading(false);
     });
 
     return () => {
-      mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [initialized]);
+
+  const value = React.useMemo(() => ({ session, user, profile, loading, error, refreshProfile, signOut, inVerificationMode, setInVerificationMode }), [session, user, profile, loading, error, inVerificationMode]);
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, error, refreshProfile, signOut }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
