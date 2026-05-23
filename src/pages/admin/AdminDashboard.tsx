@@ -1,6 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend } from "recharts";
-import { Shield, Users, AlertTriangle, CheckCircle, XCircle, Bell, LayoutDashboard, Sparkles, UserCog, LogOut, Loader2, Package, Search, Star, FileText, TrendingUp, MapPin, Calendar, Utensils, Navigation, Clock, Eye } from "lucide-react";
+import { 
+  Shield, Users, AlertTriangle, CheckCircle, XCircle, Bell, LayoutDashboard, Sparkles, UserCog, LogOut, Loader2, Package, Search, Star, FileText, TrendingUp, MapPin, Calendar, Utensils, Navigation, Clock, Eye,
+  MessageCircle, Phone, Activity, ChevronRight, PieChart as PieChartIcon
+} from "lucide-react";
 import logo from "@/assets/rizq-logo.png";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -106,13 +109,13 @@ const AdminDashboard = () => {
             <LogOut size={18} /> Log Out
           </button>
         </aside>
-        <main className="flex-1 p-8 overflow-auto bg-[#f8fafc]">
+        <main className="flex-1 p-8 overflow-auto bg-white">
           <AdminContent activeTab={activeTab} />
         </main>
       </div>
 
       {/* Mobile view */}
-      <div className="lg:hidden bg-[#f8fafc] min-h-screen">
+      <div className="lg:hidden bg-white min-h-screen">
         <div className="gradient-dark px-5 pt-6 pb-4 rounded-b-3xl shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -177,6 +180,7 @@ const StatisticsTab = () => {
       return cached ? JSON.parse(cached) : [];
     } catch { return []; }
   });
+  const [ratings, setRatings] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -186,13 +190,15 @@ const StatisticsTab = () => {
       setError(null);
       try {
         console.log("Admin: Fetching stats...");
-        const [donationsRes, rolesRes] = await Promise.all([
+        const [donationsRes, rolesRes, ratingsRes] = await Promise.all([
           supabase.from("food_donations").select("*"),
           supabase.from("user_roles").select("role"),
+          supabase.from("donation_ratings").select("*").order("created_at", { ascending: false }),
         ]);
         if (donationsRes.error) throw donationsRes.error;
         const d = donationsRes.data || [];
         const roles = rolesRes.data || [];
+        setRatings(ratingsRes.data || []);
         
         // Fetch profiles separately to avoid join errors
         const donorIds = [...new Set(d.map(x => x.donor_id))].filter(Boolean);
@@ -269,9 +275,13 @@ const StatisticsTab = () => {
           { value: stats.activeNgos, label: "Active NGOs", icon: Shield, color: "text-secondary" },
           { value: stats.rejected, label: "Rejected / Unsafe", icon: AlertTriangle, color: "text-destructive" },
         ].map((s) => (
-          <div key={s.label} className="stat-card group hover:scale-[1.02] transition-transform relative overflow-hidden">
+          <div key={s.label} className="bg-white p-5 rounded-2xl border border-border/60 hover:border-primary/30 transition-all relative overflow-hidden group hover:shadow-lg shadow-sm">
             {loading && <div className="absolute inset-0 bg-primary/5 animate-pulse rounded-2xl pointer-events-none" />}
-            <s.icon size={20} className={s.color} />
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <s.icon size={20} className={s.color} />
+              </div>
+            </div>
             <p className="text-2xl font-black text-foreground">{s.value || 0}</p>
             <p className="text-[10px] text-muted-foreground text-center font-bold uppercase tracking-wider">{s.label}</p>
           </div>
@@ -279,9 +289,9 @@ const StatisticsTab = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <div className="glass-card p-5 relative overflow-hidden">
+        <div className="bg-white p-6 rounded-2xl border border-border/60 shadow-sm relative overflow-hidden">
           <h3 className="font-bold text-sm text-foreground mb-4 flex items-center gap-2 uppercase tracking-widest">
-            <PieChart size={16} className="text-primary" /> Donation Status
+            <PieChartIcon size={16} className="text-primary" /> Donation Status
           </h3>
           {loading && statusPieData.length === 0 ? (
             <div className="h-[200px] w-full bg-muted/40 animate-pulse rounded-2xl" />
@@ -302,8 +312,10 @@ const StatisticsTab = () => {
             </div>
           )}
         </div>
+      </div>
 
-        <div className="glass-card p-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+        <div className="bg-white p-6 rounded-2xl border border-border/60 shadow-sm">
           <h3 className="font-bold text-sm text-foreground mb-4 flex items-center gap-2 uppercase tracking-widest">
             <TrendingUp size={16} className="text-primary" /> Weekly Performance
           </h3>
@@ -311,7 +323,7 @@ const StatisticsTab = () => {
             <LineChart data={weeklyData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
               <XAxis dataKey="day" tick={{ fontSize: 10, fontWeight: 700 }} stroke="hsl(var(--muted-foreground))" axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" axisLine={false} tickLine={false} />
+              <YAxis hide />
               <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
               <Line type="monotone" dataKey="donations" stroke="hsl(160, 84%, 39%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: 'white' }} animationDuration={1500} />
               <Line type="monotone" dataKey="delivered" stroke="hsl(38, 92%, 50%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: 'white' }} animationDuration={1500} />
@@ -319,18 +331,45 @@ const StatisticsTab = () => {
             </LineChart>
           </ResponsiveContainer>
         </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-border/60 shadow-sm">
+          <h3 className="font-bold text-sm text-foreground mb-4 flex items-center gap-2 uppercase tracking-widest">
+            <Star size={16} className="text-yellow-500 fill-yellow-500" /> Latest Feedbacks
+          </h3>
+          <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+            {ratings?.slice(0, 4).map((r: any) => (
+              <div key={r.id} className="p-4 rounded-xl bg-white border border-border/40 group hover:border-primary/20 transition-all hover:translate-x-1">
+                <div className="flex items-center justify-between mb-1">
+                   <div className="flex gap-0.5">
+                     {[1,2,3,4,5].map(v => (
+                       <Star key={v} size={10} className={v <= r.rating ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground/10"} />
+                     ))}
+                   </div>
+                   <span className="text-[10px] font-bold text-muted-foreground/50">{safeFormat(r.created_at, "MMM dd")}</span>
+                </div>
+                <p className="text-xs text-foreground font-medium leading-relaxed italic">"{r.comment || "SafeBite service feedback."}"</p>
+              </div>
+            ))}
+            {(!ratings || ratings.length === 0) && (
+              <div className="py-10 text-center opacity-30">
+                <MessageCircle size={32} className="mx-auto mb-2" />
+                <p className="text-[10px] font-black uppercase tracking-widest">No feedback yet</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Recent Activity Table */}
-      <div className="glass-card overflow-hidden mt-6">
-        <div className="p-5 border-b border-border/50 flex items-center justify-between">
+      <div className="bg-white rounded-2xl border border-border/60 shadow-sm overflow-hidden mt-6">
+        <div className="p-5 border-b border-border/40 flex items-center justify-between">
           <h3 className="font-bold text-sm uppercase tracking-widest flex items-center gap-2">
             <Clock size={16} className="text-secondary" /> Recent Activity
           </h3>
         </div>
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-muted/10">
+            <TableHeader className="bg-primary/5">
               <TableRow>
                 <TableHead className="text-[10px] font-black uppercase tracking-widest py-3">Content</TableHead>
                 <TableHead className="text-[10px] font-black uppercase tracking-widest py-3">Donor</TableHead>
@@ -405,7 +444,7 @@ const DonationsTab = () => {
       if (donorIds.length > 0) {
         const { data: profileData } = await supabase
           .from("profiles")
-          .select("id, full_name, email")
+          .select("id, full_name, phone")
           .in("id", donorIds);
         profiles = profileData || [];
       }
@@ -470,9 +509,9 @@ const DonationsTab = () => {
         </div>
       </div>
 
-      <div className="glass-card overflow-hidden">
+      <div className="bg-white rounded-2xl border border-border/60 shadow-sm overflow-hidden">
         <Table>
-          <TableHeader className="bg-muted/30">
+          <TableHeader className="bg-primary/5">
             <TableRow>
               <TableHead className="text-[10px] font-black uppercase tracking-widest">Donation</TableHead>
               <TableHead className="text-[10px] font-black uppercase tracking-widest">Donor</TableHead>
@@ -513,7 +552,7 @@ const DonationsTab = () => {
                   <TableCell>
                     <div className="flex flex-col">
                       <span className="font-medium text-xs text-foreground">{d.donor?.full_name || "Unknown"}</span>
-                      <span className="text-[10px] text-muted-foreground">{d.donor?.email}</span>
+                      <span className="text-[10px] text-muted-foreground">{d.donor?.phone || "No phone number available"}</span>
                     </div>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
@@ -553,7 +592,11 @@ const DonorAnalyticsTab = () => {
   const [donorData, setDonorData] = useState<any[]>(() => {
     try {
       const cached = localStorage.getItem("adm_donor_data");
-      return cached ? JSON.parse(cached) : [];
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+      return [];
     } catch { return []; }
   });
   const [ratings, setRatings] = useState<any[]>([]);
@@ -565,6 +608,33 @@ const DonorAnalyticsTab = () => {
   const [ratingValue, setRatingValue] = useState(0);
   const [ratingComment, setRatingComment] = useState("");
 
+  // Verification state
+  const [verificationDialog, setVerificationDialog] = useState<{ isOpen: boolean; phone: string; action: () => void }>({ 
+    isOpen: false, 
+    phone: "", 
+    action: () => {} 
+  });
+  const [isIdentityVerified, setIsIdentityVerified] = useState(false);
+
+  const handleCall = (phone: string | null) => {
+    if (!phone) { toast.error("Phone number not available"); return; }
+    const executeCall = () => { window.location.href = `tel:${phone}`; };
+    if (isIdentityVerified) executeCall();
+    else setVerificationDialog({ isOpen: true, phone, action: executeCall });
+  };
+
+  const handleWhatsApp = (phone: string | null, name: string = "User") => {
+    if (!phone) { toast.error("WhatsApp number not available"); return; }
+    const executeWhatsApp = () => {
+      const cleanPhone = phone.replace(/\D/g, "");
+      const formattedPhone = cleanPhone.startsWith("0") ? "92" + cleanPhone.substring(1) : cleanPhone;
+      const message = encodeURIComponent(`Assalam o Alaikum ${name}, this is SafeBite Admin. Regarding your account/donation...`);
+      window.open(`https://wa.me/${formattedPhone}/?text=${message}`, "_blank");
+    };
+    if (isIdentityVerified) executeWhatsApp();
+    else setVerificationDialog({ isOpen: true, phone, action: executeWhatsApp });
+  };
+
   useEffect(() => {
     const fetch = async () => {
       setLoading(true);
@@ -572,10 +642,18 @@ const DonorAnalyticsTab = () => {
       try {
         const [donationsRes, profilesRes, ratingsRes] = await Promise.all([
           supabase.from("food_donations").select("*").order("created_at", { ascending: false }),
-          supabase.from("profiles").select("id, full_name, email, role"),
+          supabase.from("profiles").select("id, full_name, phone"),
           supabase.from("donation_ratings").select("*"),
         ]);
-        if (donationsRes.error) throw donationsRes.error;
+        console.log("Donor Analytics Res:", { donationsRes, profilesRes, ratingsRes });
+        if (donationsRes.error) console.error("Donations error:", donationsRes.error);
+        if (profilesRes.error) console.error("Profiles error:", profilesRes.error);
+        if (ratingsRes.error) console.error("Ratings error:", ratingsRes.error);
+        
+        if (donationsRes.error || profilesRes.error || ratingsRes.error) {
+           setError("Failed to load donor data");
+           return;
+        }
         
         const donations = donationsRes.data || [];
         const profiles = profilesRes.data || [];
@@ -585,8 +663,9 @@ const DonorAnalyticsTab = () => {
         // Pre-group ratings for faster lookup
         const ratingsMap = new Map<string, { total: number; count: number }>();
         allRatings.forEach(r => {
+          if (!r || !r.rated_user_id) return;
           const stats = ratingsMap.get(r.rated_user_id) || { total: 0, count: 0 };
-          stats.total += r.rating;
+          stats.total += (r.rating || 0);
           stats.count++;
           ratingsMap.set(r.rated_user_id, stats);
         });
@@ -598,14 +677,15 @@ const DonorAnalyticsTab = () => {
         const profileMap = new Map(profiles.map(p => [p.id, p]));
 
         donations.forEach(d => {
+          if (!d || !d.donor_id) return;
           if (!donorMap.has(d.donor_id)) {
             const profile = profileMap.get(d.donor_id);
             const userRating = ratingsMap.get(d.donor_id);
             donorMap.set(d.donor_id, {
               id: d.donor_id,
               name: profile?.full_name || "Unknown",
-              email: profile?.email || "",
-              avgRating: userRating ? (userRating.total / userRating.count).toFixed(1) : null,
+              phone: profile?.phone || "",
+              avgRating: userRating && userRating.count > 0 ? (userRating.total / userRating.count).toFixed(1) : null,
               totalPosts: 0,
               delivered: 0,
               rejected: 0,
@@ -614,15 +694,20 @@ const DonorAnalyticsTab = () => {
             });
           }
           const donor = donorMap.get(d.donor_id);
-          donor.totalPosts++;
-          donor.donations.push(d);
-          if (d.status === "delivered") donor.delivered++;
-          else if (d.status === "rejected") donor.rejected++;
-          else donor.pending++;
+          if (donor) {
+            donor.totalPosts++;
+            donor.donations = donor.donations || [];
+            donor.donations.push(d);
+            if (d.status === "delivered") donor.delivered++;
+            else if (d.status === "rejected") donor.rejected++;
+            else donor.pending++;
+          }
         });
 
         // Correctly convert Map values to Array for the table
-        const data = Array.from(donorMap.values()).sort((a, b) => b.totalPosts - a.totalPosts);
+        const data = Array.from(donorMap.values())
+          .filter(Boolean)
+          .sort((a, b) => (b.totalPosts || 0) - (a.totalPosts || 0));
         setDonorData(data);
         localStorage.setItem("adm_donor_data", JSON.stringify(data));
       } catch (err: any) {
@@ -659,10 +744,15 @@ const DonorAnalyticsTab = () => {
     setRatings(data || []);
   };
 
-  const filtered = useMemo(() =>
-    donorData.filter(d => (d.name || "").toLowerCase().includes(search.toLowerCase()) || (d.email || "").toLowerCase().includes(search.toLowerCase())),
-    [donorData, search]
-  );
+  const filtered = useMemo(() => {
+    const list = Array.isArray(donorData) ? donorData : [];
+    return list.filter(d => 
+      d && (
+        (d.name || "").toLowerCase().includes(search.toLowerCase()) || 
+        (d.phone || "").toLowerCase().includes(search.toLowerCase())
+      )
+    );
+  }, [donorData, search]);
 
   return (
     <div className="animate-fade-in">
@@ -681,17 +771,16 @@ const DonorAnalyticsTab = () => {
         <AlertTriangle size={14} /> {error}
       </div>}
 
-      <div className="glass-card overflow-hidden">
+      <div className="bg-white rounded-2xl border border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-muted/30">
+            <TableHeader className="bg-primary/5">
               <TableRow>
                 <TableHead className="text-[10px] font-black uppercase tracking-widest py-4">Donor Name</TableHead>
                 <TableHead className="text-[10px] font-black uppercase tracking-widest py-4">Email</TableHead>
-                <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Total Posts</TableHead>
                 <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Delivered</TableHead>
                 <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Pending</TableHead>
-                <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Rejected</TableHead>
+                <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Total</TableHead>
                 <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Avg Rating</TableHead>
                 <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Action</TableHead>
               </TableRow>
@@ -705,21 +794,19 @@ const DonorAnalyticsTab = () => {
                     <TableCell><div className="h-4 w-8 bg-muted animate-pulse rounded mx-auto" /></TableCell>
                     <TableCell><div className="h-4 w-8 bg-muted animate-pulse rounded mx-auto" /></TableCell>
                     <TableCell><div className="h-4 w-8 bg-muted animate-pulse rounded mx-auto" /></TableCell>
-                    <TableCell><div className="h-4 w-8 bg-muted animate-pulse rounded mx-auto" /></TableCell>
                     <TableCell><div className="h-4 w-12 bg-muted animate-pulse rounded mx-auto" /></TableCell>
                     <TableCell><div className="h-8 w-20 bg-muted animate-pulse rounded-lg mx-auto" /></TableCell>
                   </TableRow>
                 ))
               ) : filtered.map(d => (
-                <TableRow key={d.id} className="hover:bg-muted/20 transition-colors">
-                  <TableCell className="font-bold cursor-pointer hover:text-primary transition-colors text-sm" onClick={() => setDetailsDialog(d)}>
+                <TableRow key={d.id} className="hover:bg-primary/5 transition-colors">
+                  <TableCell className="font-bold cursor-pointer hover:text-primary transition-colors text-sm underline decoration-dotted underline-offset-4" onClick={() => setDetailsDialog(d)}>
                     {d.name}
                   </TableCell>
-                  <TableCell className="text-muted-foreground text-xs font-medium">{d.email}</TableCell>
-                  <TableCell className="text-center font-black text-foreground">{d.totalPosts}</TableCell>
+                  <TableCell className="text-muted-foreground text-xs font-medium">{d.phone || "No phone available"}</TableCell>
                   <TableCell className="text-center"><Badge variant="secondary" className="bg-primary/10 text-primary font-black border-transparent">{d.delivered}</Badge></TableCell>
-                  <TableCell className="text-center"><Badge variant="outline" className="text-orange-500 border-orange-500/20 bg-orange-500/5 font-black">{d.pending}</Badge></TableCell>
-                  <TableCell className="text-center"><Badge variant="destructive" className="font-black">{d.rejected}</Badge></TableCell>
+                  <TableCell className="text-center"><Badge variant="outline" className="text-amber-500 border-amber-500/20 bg-amber-500/5 font-black">{d.pending}</Badge></TableCell>
+                  <TableCell className="text-center font-black text-foreground">{d.totalPosts}</TableCell>
                   <TableCell className="text-center">
                     {d.avgRating ? (
                       <span className="flex items-center justify-center gap-1 text-sm font-black text-foreground">
@@ -732,7 +819,7 @@ const DonorAnalyticsTab = () => {
                       onClick={() => { setRatingDialog({ userId: d.id, name: d.name }); setRatingValue(0); }}
                       className="text-[10px] px-3 py-1.5 rounded-lg gradient-primary text-primary-foreground font-black uppercase tracking-wider active:scale-95 transition-transform shadow-md shadow-primary/20"
                     >
-                      Rate
+                      Rate User
                     </button>
                   </TableCell>
                 </TableRow>
@@ -746,198 +833,139 @@ const DonorAnalyticsTab = () => {
       </div>
 
       {/* Donation Details Dialog */}
-      {detailsDialog && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm" onClick={() => setDetailsDialog(null)}>
-          <div className="bg-card rounded-[2rem] p-5 sm:p-8 w-full max-w-4xl shadow-2xl animate-scale-in max-h-[92vh] overflow-hidden flex flex-col border border-border/50" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
-                  <Package size={28} />
+      <Dialog open={!!detailsDialog} onOpenChange={() => setDetailsDialog(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto rounded-[2rem] p-0 border-none bg-background shadow-2xl">
+          {detailsDialog && (
+            <div className="p-6 sm:p-10 flex flex-col gap-8">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-5">
+                  <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20">
+                    <TrendingUp size={32} />
+                  </div>
+                  <div>
+                    <h2 className="text-3xl font-black text-foreground tracking-tight">{detailsDialog.name}</h2>
+                    <p className="text-sm text-muted-foreground flex items-center gap-3 mt-1">
+                      <span className="flex items-center gap-1 font-bold text-foreground">
+                        <Star size={14} className="text-yellow-500 fill-yellow-500" /> {detailsDialog.avgRating || "No ratings"}
+                      </span>
+                      <span className="opacity-30">•</span>
+                      <span>{detailsDialog.phone || "No phone number available"}</span>
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-bold text-2xl text-foreground tracking-tight">{detailsDialog.name}</h4>
-                  <p className="text-sm text-muted-foreground flex items-center gap-2">
-                    <Star size={14} className="text-yellow-500 fill-yellow-500" />
-                    <span>Avg Rating: <b>{detailsDialog.avgRating || "N/A"}</b></span>
-                    <span className="mx-1">•</span>
-                    <span>{detailsDialog.email}</span>
-                  </p>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => handleCall(detailsDialog.phone)}
+                    className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center hover:bg-primary transition-all active:scale-95 group"
+                    title="Call Donor"
+                  >
+                    <Phone size={20} className="group-hover:rotate-12 transition-transform" />
+                  </button>
+                  <button 
+                    onClick={() => handleWhatsApp(detailsDialog.phone, detailsDialog.name)}
+                    className="w-12 h-12 rounded-2xl bg-[#25D366]/10 text-[#25D366] flex items-center justify-center hover:bg-[#25D366] transition-all active:scale-95 group"
+                    title="WhatsApp Donor"
+                  >
+                    <MessageCircle size={20} className="group-hover:scale-110 transition-transform" />
+                  </button>
                 </div>
               </div>
-              <button 
-                onClick={() => setDetailsDialog(null)}
-                className="w-10 h-10 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-all hover:rotate-90"
-              >
-                <XCircle size={20} className="text-muted-foreground" />
-              </button>
-            </div>
 
-            <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-8">
-              {/* Quick Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: "Total Posts", value: detailsDialog.totalPosts, icon: FileText, color: "text-blue-500", bg: "bg-blue-500/10" },
-                  { label: "Delivered", value: detailsDialog.delivered, icon: CheckCircle, color: "text-primary", bg: "bg-primary/10" },
-                  { label: "Pending", value: detailsDialog.pending, icon: Bell, color: "text-orange-500", bg: "bg-orange-500/10" },
-                  { label: "Rejected", value: detailsDialog.rejected, icon: AlertTriangle, color: "text-destructive", bg: "bg-destructive/10" },
-                ].map((stat) => (
-                  <div key={stat.label} className={`${stat.bg} p-4 rounded-2xl border border-white/5`}>
-                     <div className="flex items-center justify-between mb-2">
-                       <stat.icon size={16} className={stat.color} />
-                     </div>
-                     <p className="text-2xl font-black text-foreground">{stat.value}</p>
-                     <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{stat.label}</p>
+                  { label: "Posts", value: detailsDialog.totalPosts, color: "text-blue-500", bg: "bg-blue-50/50" },
+                  { label: "Delivered", value: detailsDialog.delivered, color: "text-primary", bg: "bg-primary/5" },
+                  { label: "Pending", value: detailsDialog.pending, color: "text-amber-500", bg: "bg-amber-50/50" },
+                  { label: "Rejected", value: detailsDialog.rejected, color: "text-destructive", bg: "bg-destructive/5" },
+                ].map(s => (
+                  <div key={s.label} className={`${s.bg} p-5 rounded-2xl border border-border/40 shadow-sm`}>
+                    <p className={`text-2xl font-black ${s.color}`}>{s.value}</p>
+                    <p className="text-[10px] font-black uppercase text-muted-foreground tracking-widest mt-1">{s.label}</p>
                   </div>
                 ))}
               </div>
 
-              {/* History Charts */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="glass-card p-5">
-                  <h5 className="font-bold text-sm mb-4 flex items-center gap-2">
-                    <TrendingUp size={16} className="text-primary" /> Monthly Activity
-                  </h5>
-                  <div className="h-[200px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={(() => {
-                        const monthsMap: Record<string, any> = {};
-                        detailsDialog.donations.forEach((d: any) => {
-                          if (!d.created_at || isNaN(new Date(d.created_at).getTime())) return;
-                          const monthStr = format(new Date(d.created_at), "MMM yyyy");
-                          if (!monthsMap[monthStr]) monthsMap[monthStr] = { month: monthStr, posts: 0, delivered: 0 };
-                          monthsMap[monthStr].posts++;
-                          if (d.status === "delivered") monthsMap[monthStr].delivered++;
-                        });
-                        return Object.values(monthsMap).reverse();
-                      })()}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                        <XAxis dataKey="month" style={{ fontSize: '10px' }} tickLine={false} axisLine={false} />
-                        <YAxis hide />
-                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                        <Bar dataKey="posts" fill="hsl(160, 84%, 39%)" radius={[4, 4, 0, 0]} barSize={20} />
-                        <Bar dataKey="delivered" fill="hsl(38, 92%, 50%)" radius={[4, 4, 0, 0]} barSize={20} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="glass-card p-5">
-                  <h5 className="font-bold text-sm mb-4 flex items-center gap-2">
-                    <Star size={16} className="text-yellow-500" /> Rating Trend (Daily)
-                  </h5>
-                  <div className="h-[200px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={(() => {
-                        const dayMap: Record<string, any> = {};
-                        const userRatings = ratings.filter(r => r.rated_user_id === detailsDialog.id);
-                        userRatings.forEach((r: any) => {
-                          const ts = r.created_at ? new Date(r.created_at) : new Date();
-                          if (isNaN(ts.getTime())) return;
-                          const dateStr = format(ts, "dd MMM");
-                          if (!dayMap[dateStr]) dayMap[dateStr] = { day: dateStr, rating: 0, count: 0 };
-                          dayMap[dateStr].rating += r.rating;
-                          dayMap[dateStr].count++;
-                        });
-                        return Object.values(dayMap).map((d: any) => ({ ...d, avg: (d.rating / d.count).toFixed(1) }));
-                      })()}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                        <XAxis dataKey="day" style={{ fontSize: '10px' }} tickLine={false} axisLine={false} />
-                        <YAxis hide domain={[0, 5]} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="avg" stroke="hsl(38, 92%, 50%)" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: 'white' }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-
-              {/* Detailed Posts List */}
               <div>
-                <h5 className="font-bold text-sm mb-4 flex items-center gap-2">
-                  <FileText size={16} className="text-blue-500" /> Post History
-                </h5>
-                <div className="flex flex-col gap-3">
+                <h4 className="text-sm font-black uppercase tracking-widest text-foreground mb-4 flex items-center gap-2">
+                  <Package size={16} className="text-primary" /> Donation History
+                </h4>
+                <div className="space-y-3">
                   {detailsDialog.donations.map((dn: any) => (
-                    <div key={dn.id} className="glass-card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group hover:bg-muted/30 transition-all border border-transparent hover:border-border/60">
+                    <div key={dn.id} className="p-4 rounded-2xl bg-white border border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div className="flex items-center gap-4">
-                        {dn.image_url ? (
-                          <img 
-                            src={`${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/food-images/${dn.image_url}`} 
-                            alt={dn.title} 
-                            className="w-14 h-14 rounded-2xl object-cover ring-1 ring-border group-hover:scale-105 transition-transform"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
-                            <Utensils size={24} className="text-muted-foreground/30" />
-                          </div>
-                        )}
-        <div className="min-w-0">
-          <h6 className="font-bold text-foreground text-sm truncate">{dn.title}</h6>
-          <div className="flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground font-body mt-0.5">
-            <span className="flex items-center gap-1 text-primary"><MapPin size={10} /> {dn.location}</span>
-            <span>•</span>
-            <span className="flex items-center gap-1"><Calendar size={10} /> {safeFormat(dn.created_at, "dd MMM yyyy, hh:mm a")}</span>
-          </div>
-        </div>
+                        <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center text-primary shadow-sm">
+                          <Utensils size={20} />
+                        </div>
+                        <div>
+                          <p className="font-bold text-sm text-foreground">{dn.title}</p>
+                          <p className="text-[10px] text-muted-foreground">{safeFormat(dn.created_at, "MMM dd, yyyy · hh:mm a")}</p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <div className="text-right hidden sm:block">
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest leading-none mb-1">Status</p>
-                          <Badge 
-                            variant={dn.status === "delivered" ? "secondary" : dn.status === "rejected" ? "destructive" : "outline"} 
-                            className={`text-[10px] font-bold ${dn.status === "delivered" ? "bg-primary/10 text-primary" : ""}`}
-                          >
-                            {dn.status.toUpperCase()}
-                          </Badge>
-                        </div>
-                        <div className="h-10 w-[1px] bg-border/60 mx-1 hidden sm:block" />
-                        <div className="flex flex-col items-end">
-                           <div className="flex items-center gap-1 mb-1">
-                             {dn.status === "rejected" && <Badge variant="destructive" className="h-4 px-1.5 text-[9px] font-black">REJECTED</Badge>}
-                           </div>
-                           <p className="text-[10px] text-muted-foreground font-mono">{dn.quantity} Servings</p>
-                        </div>
+                        <Badge className={`uppercase font-black text-[9px] tracking-tighter ${
+                          dn.status === "delivered" ? "bg-success/10 text-success border-success/30" : 
+                          dn.status === "rejected" ? "bg-destructive/10 text-destructive border-destructive/30" : "bg-muted/30 text-muted-foreground"
+                        }`}>
+                          {dn.status}
+                        </Badge>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-
-            <div className="mt-8 pt-6 border-t border-border flex justify-end">
-              <button 
-                onClick={() => setDetailsDialog(null)}
-                className="px-8 py-3 rounded-2xl bg-foreground text-background font-bold text-sm hover:opacity-90 active:scale-95 transition-all shadow-lg"
-              >
-                Close Report
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Rating Dialog */}
       {ratingDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setRatingDialog(null)}>
-          <div className="bg-card rounded-2xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
-            <h4 className="font-bold text-foreground mb-1">Rate {ratingDialog.name}</h4>
-            <p className="text-xs text-muted-foreground mb-4">Give a rating based on food quality & reliability</p>
-            <div className="flex gap-2 justify-center mb-4">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setRatingDialog(null)}>
+          <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl animate-scale-in border border-border/50" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-6">
+               <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto mb-4 border border-primary/20 shadow-inner">
+                 <Star size={40} className="text-primary fill-primary/30" />
+               </div>
+               <h4 className="font-black text-2xl text-foreground tracking-tight">Rate {ratingDialog.name}</h4>
+               <p className="text-xs text-muted-foreground font-medium mt-1">Provide performance feedback for this user.</p>
+            </div>
+
+            <div className="flex gap-2 justify-center mb-8">
               {[1, 2, 3, 4, 5].map(v => (
-                <button key={v} onClick={() => setRatingValue(v)}>
-                  <Star size={28} className={v <= ratingValue ? "text-yellow-500 fill-yellow-500" : "text-muted-foreground"} />
+                <button key={v} onClick={() => setRatingValue(v)} className="transition-all transform hover:scale-125 active:scale-95">
+                  <Star size={36} className={v <= ratingValue ? "text-yellow-400 fill-yellow-400 filter drop-shadow-md" : "text-muted opacity-30"} />
                 </button>
               ))}
             </div>
-            <Input placeholder="Comment (optional)" value={ratingComment} onChange={e => setRatingComment(e.target.value)} className="mb-4" />
-            <div className="flex gap-2">
-              <button onClick={() => setRatingDialog(null)} className="flex-1 py-2 rounded-xl border text-sm font-medium text-muted-foreground">Cancel</button>
-              <button onClick={handleSubmitRating} className="flex-1 py-2 rounded-xl gradient-primary text-primary-foreground text-sm font-semibold">Submit</button>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest ml-1">Comments</label>
+                <textarea 
+                  placeholder="Describe your experience..." 
+                  value={ratingComment} 
+                  onChange={e => setRatingComment(e.target.value)} 
+                  className="w-full h-24 mt-1 p-4 rounded-2xl border border-border/60 bg-muted/30 focus:bg-white focus:border-primary/50 outline-none text-sm transition-all resize-none"
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setRatingDialog(null)} className="flex-1 py-3.5 rounded-2xl bg-muted/50 text-muted-foreground font-bold text-xs uppercase tracking-widest hover:bg-muted transition-all">Cancel</button>
+                <button onClick={handleSubmitRating} className="flex-1 py-3.5 rounded-2xl gradient-primary text-white font-black text-xs uppercase tracking-widest shadow-lg shadow-primary/25 active:scale-95 transition-all">Submit Rating</button>
+              </div>
             </div>
           </div>
         </div>
       )}
+      <ContactVerification 
+        isOpen={verificationDialog.isOpen}
+        onClose={() => setVerificationDialog(prev => ({ ...prev, isOpen: false }))}
+        phoneNumber={verificationDialog.phone}
+        onVerified={() => {
+          setIsIdentityVerified(true);
+          verificationDialog.action();
+        }}
+      />
     </div>
   );
 };
@@ -948,7 +976,11 @@ const RiderAnalyticsTab = () => {
   const [riderStats, setRiderStats] = useState<any[]>(() => {
     try {
       const cached = localStorage.getItem("adm_rider_stats");
-      return cached ? JSON.parse(cached) : [];
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+      return [];
     } catch { return []; }
   });
   const [loading, setLoading] = useState(false);
@@ -956,105 +988,191 @@ const RiderAnalyticsTab = () => {
   const [search, setSearch] = useState("");
   const [selectedRider, setSelectedRider] = useState<any | null>(null);
 
-  useEffect(() => {
-    const fetch = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const [trackingRes, profilesRes, ratingsRes, donationsRes] = await Promise.all([
-          supabase.from("volunteer_tracking").select("*"),
-          supabase.from("profiles").select("id, full_name, email, role, phone").eq("role", "volunteer"),
-          supabase.from("donation_ratings").select("*"),
-          supabase.from("food_donations").select("id, assigned_volunteer_id, status").not("assigned_volunteer_id", "is", null)
-        ]);
-        console.log("Analytics: trackingRes", trackingRes);
-        console.log("Analytics: profilesRes", profilesRes);
-        console.log("Analytics: ratingsRes", ratingsRes);
-        console.log("Analytics: donationsRes", donationsRes);
+  const [localRatingDialog, setLocalRatingDialog] = useState<{ userId: string; name: string } | null>(null);
+  const [ratingValue, setRatingValue] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [submittingRating, setSubmittingRating] = useState(false);
 
-        if (trackingRes.error) throw trackingRes.error;
-        if (profilesRes.error) throw profilesRes.error;
-        if (donationsRes.error) throw donationsRes.error;
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [trackingRes, ratingsRes, donationsRes, rolesRes] = await Promise.all([
+        supabase.from("volunteer_tracking").select("*"),
+        supabase.from("donation_ratings").select("*"),
+        supabase.from("food_donations").select("id, assigned_volunteer_id, status").not("assigned_volunteer_id", "is", null),
+        supabase.from("user_roles").select("user_id").eq("role", "volunteer")
+      ]);
 
-        const tracking = trackingRes.data || [];
-        const volunteers = profilesRes.data || [];
-        const ratings = ratingsRes.data || [];
-        const donations = donationsRes.data || [];
+      if (trackingRes.error) console.error("Tracking error:", trackingRes.error);
+      if (ratingsRes.error) console.error("Ratings error:", ratingsRes.error);
+      if (donationsRes.error) console.error("Donations error:", donationsRes.error);
+      if (rolesRes.error) console.error("Roles error:", rolesRes.error);
 
-        const ratingsMap = new Map<string, { total: number; count: number }>();
-        ratings.forEach(r => {
-          const stats = ratingsMap.get(r.rated_user_id) || { total: 0, count: 0 };
-          stats.total += r.rating;
-          stats.count++;
-          ratingsMap.set(r.rated_user_id, stats);
-        });
+      if (trackingRes.error || ratingsRes.error || donationsRes.error || rolesRes.error) {
+         setError("Failed to load rider data");
+         return;
+      }
 
-        // Group donation status by volunteer for better accuracy
-        const donationStatusMap = new Map<string, { active: number; completed: number }>();
-        donations.forEach(d => {
-          const vId = d.assigned_volunteer_id;
-          if (!vId) return;
-          const stats = donationStatusMap.get(vId) || { active: 0, completed: 0 };
-          if (d.status === "delivered") stats.completed++;
-          else stats.active++;
-          donationStatusMap.set(vId, stats);
-        });
+      const tracking = trackingRes.data || [];
+      const ratings = ratingsRes.data || [];
+      const donations = donationsRes.data || [];
+      const roles = rolesRes.data || [];
+
+      const volunteerIds = roles.map(r => r.user_id).filter(Boolean);
+      let volunteers: any[] = [];
+      if (volunteerIds.length > 0) {
+        const { data: vProfiles, error: vErr } = await supabase
+          .from("profiles")
+          .select("id, full_name, phone")
+          .in("id", volunteerIds);
+        if (vErr) throw vErr;
+        volunteers = vProfiles || [];
+      }
+
+      const ratingsMap = new Map<string, { total: number; count: number }>();
+      ratings.forEach(r => {
+        if (!r || !r.rated_user_id) return;
+        const stats = ratingsMap.get(r.rated_user_id) || { total: 0, count: 0 };
+        stats.total += (r.rating || 0);
+        stats.count++;
+        ratingsMap.set(r.rated_user_id, stats);
+      });
+
+      // Group donation status by volunteer for better accuracy
+      const donationStatusMap = new Map<string, { active: number; completed: number }>();
+      donations.forEach(d => {
+        if (!d) return;
+        const vId = d.assigned_volunteer_id;
+        if (!vId) return;
+        const stats = donationStatusMap.get(vId) || { active: 0, completed: 0 };
+        if (d.status === "delivered") stats.completed++;
+        else stats.active++;
+        donationStatusMap.set(vId, stats);
+      });
+      
+      const riderMap = new Map<string, any>();
+      volunteers.forEach(v => {
+        if (!v || !v.id) return;
+        const donationStats = donationStatusMap.get(v.id) || { active: 0, completed: 0 };
         
-        const riderMap = new Map<string, any>();
-        volunteers.forEach(v => {
-          if (!v.id) return;
-          const donationStats = donationStatusMap.get(v.id) || { active: 0, completed: 0 };
-          
-          riderMap.set(v.id, {
-            id: v.id,
-            name: v.full_name || "Unknown",
-            email: v.email || "N/A",
-            phone: v.phone || "N/A",
-            activeTasks: donationStats.active,
-            completedDeliveries: donationStats.completed,
-            avgRating: "N/A",
-            lastSeen: null,
-            status: donationStats.active > 0 ? "active" : "offline"
-          });
+        riderMap.set(v.id, {
+          id: v.id,
+          name: v.full_name || "Unknown",
+          phone: v.phone || "N/A",
+          activeTasks: donationStats.active,
+          completedDeliveries: donationStats.completed,
+          avgRating: "N/A",
+          lastSeen: null,
+          status: donationStats.active > 0 ? "active" : "offline"
         });
+      });
 
-        tracking.forEach(t => {
-          if (riderMap.has(t.volunteer_id)) {
-            const rider = riderMap.get(t.volunteer_id);
+      tracking.forEach(t => {
+        if (!t || !t.volunteer_id) return;
+        if (riderMap.has(t.volunteer_id)) {
+          const rider = riderMap.get(t.volunteer_id);
+          if (rider) {
             const trackDate = new Date(t.updated_at);
             if (!rider.lastSeen || trackDate > new Date(rider.lastSeen)) {
               rider.lastSeen = t.updated_at;
             }
           }
-        });
+        }
+      });
 
-        const finalData = Array.from(riderMap.values()).map(r => {
+      const finalData = Array.from(riderMap.values())
+        .filter(Boolean)
+        .map(r => {
           const ratingData = ratingsMap.get(r.id);
           return {
             ...r,
-            avgRating: ratingData ? (ratingData.total / ratingData.count).toFixed(1) : "N/A"
+            avgRating: ratingData && ratingData.count > 0 ? (ratingData.total / ratingData.count).toFixed(1) : "N/A"
           };
-        }).sort((a, b) => b.completedDeliveries - a.completedDeliveries);
+        }).sort((a, b) => (b.completedDeliveries || 0) - (a.completedDeliveries || 0));
 
-        setRiderStats(finalData);
-        localStorage.setItem("adm_rider_stats", JSON.stringify(finalData));
-      } catch (err: any) {
-        console.error("Rider Analytics error:", err);
-        setError(err.message || "Failed to load rider fleet data");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetch();
+      setRiderStats(finalData);
+      localStorage.setItem("adm_rider_stats", JSON.stringify(finalData));
+    } catch (err: any) {
+      console.error("Rider Analytics error:", err);
+      setError(err.message || "Failed to load rider fleet data");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const filtered = useMemo(() => 
-    riderStats.filter(r => 
-      (r.name || "").toLowerCase().includes(search.toLowerCase()) || 
-      (r.phone || "").includes(search)
-    ),
-    [riderStats, search]
-  );
+  const handleSubmitRating = async () => {
+    if (!localRatingDialog) return;
+    if (ratingValue === 0) {
+      toast.error("Please select a rating from 1 to 5 stars");
+      return;
+    }
+    setSubmittingRating(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error("User session not found");
+        return;
+      }
+
+      // Try to find an existing donation ID assigned to this volunteer, so rating references correctly
+      const { data: existingDonations } = await supabase
+        .from("food_donations")
+        .select("id")
+        .eq("assigned_volunteer_id", localRatingDialog.userId)
+        .limit(1);
+
+      const donationId = existingDonations && existingDonations.length > 0 
+        ? existingDonations[0].id 
+        : "00000000-0000-0000-0000-000000000000"; // Fallback to safe dummy UUID
+
+      const { error } = await supabase.from("donation_ratings").insert({
+        donation_id: donationId,
+        rated_user_id: localRatingDialog.userId,
+        rated_by_user_id: user.id,
+        rating: ratingValue,
+        comment: ratingComment || null,
+      });
+      if (error) {
+        toast.error("Rating submission failed: " + error.message);
+        return;
+      }
+      toast.success(`Successfully rated ${localRatingDialog.name} ⭐${ratingValue}`);
+      setLocalRatingDialog(null);
+      setRatingValue(0);
+      setRatingComment("");
+
+      await fetchData();
+    } catch (err: any) {
+      toast.error("Error rating: " + err.message);
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const filtered = useMemo(() => {
+    const list = Array.isArray(riderStats) ? riderStats : [];
+    return list.filter(r => 
+      r && (
+        (r.name || "").toLowerCase().includes(search.toLowerCase()) || 
+        (r.phone || "").includes(search)
+      )
+    );
+  }, [riderStats, search]);
+
+  const avgFleetRating = useMemo(() => {
+    const list = Array.isArray(riderStats) ? riderStats : [];
+    const validRatings = list
+      .map(r => r && r.avgRating ? parseFloat(r.avgRating) : NaN)
+      .filter(val => !isNaN(val));
+    return validRatings.length > 0
+      ? (validRatings.reduce((sum, val) => sum + val, 0) / validRatings.length).toFixed(1)
+      : "N/A";
+  }, [riderStats]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1086,9 +1204,9 @@ const RiderAnalyticsTab = () => {
           { label: "Top Rider", value: riderStats[0]?.name || "N/A", icon: Star, color: "text-yellow-500" },
           { label: "Active Fleet", value: riderStats.filter(r => r.activeTasks > 0).length, icon: Navigation, color: "text-primary" },
           { label: "Total Completed", value: riderStats.reduce((sum, r) => sum + r.completedDeliveries, 0), icon: CheckCircle, color: "text-success" },
-          { label: "Avg Service Rating", value: "⭐ 4.8", icon: TrendingUp, color: "text-blue-500" },
+          { label: "Avg Service Rating", value: avgFleetRating !== "N/A" ? `⭐ ${avgFleetRating}` : "N/A", icon: TrendingUp, color: "text-blue-500" },
         ].map(s => (
-          <div key={s.label} className="glass-card p-4 flex flex-col items-center text-center">
+          <div key={s.label} className="bg-white rounded-2xl border border-border/60 shadow-sm p-4 flex flex-col items-center text-center">
             <s.icon size={20} className={`${s.color} mb-2`} />
             <p className="text-lg font-bold text-foreground truncate w-full">{s.value}</p>
             <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">{s.label}</p>
@@ -1096,10 +1214,10 @@ const RiderAnalyticsTab = () => {
         ))}
       </div>
 
-      <div className="glass-card overflow-hidden">
+      <div className="bg-white rounded-2xl border border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-muted/50">
+            <TableHeader className="bg-primary/5">
               <TableRow>
                 <TableHead className="text-[10px] font-black uppercase tracking-widest py-4">Volunteer Details</TableHead>
                 <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Deliveries</TableHead>
@@ -1120,7 +1238,7 @@ const RiderAnalyticsTab = () => {
               ) : filtered.map(r => (
                 <TableRow 
                   key={r.id} 
-                  className="hover:bg-muted/30 cursor-pointer transition-colors group"
+                  className="hover:bg-primary/5 cursor-pointer transition-colors group"
                   onClick={() => setSelectedRider(r)}
                 >
                   <TableCell>
@@ -1180,7 +1298,7 @@ const RiderAnalyticsTab = () => {
                   </Badge>
                 </div>
                 <h4 className="text-2xl font-black tracking-tight">{selectedRider.name}</h4>
-                <p className="text-white/70 text-sm font-medium mt-1 uppercase tracking-widest text-[10px] font-black">{selectedRider.email}</p>
+                <p className="text-white/70 text-sm font-medium mt-1 uppercase tracking-widest text-[10px] font-black">{selectedRider.phone || "No phone number available"}</p>
               </div>
               
               <div className="p-6 space-y-6">
@@ -1224,9 +1342,24 @@ const RiderAnalyticsTab = () => {
                   </div>
                 </div>
 
+                <button
+                  type="button"
+                  onClick={() => {
+                    const riderId = selectedRider.id;
+                    const riderName = selectedRider.name;
+                    setSelectedRider(null);
+                    setLocalRatingDialog({ userId: riderId, name: riderName });
+                    setRatingValue(0);
+                    setRatingComment("");
+                  }}
+                  className="w-full py-3.5 rounded-2xl bg-yellow-500 hover:bg-yellow-600 text-white font-extrabold uppercase text-xs tracking-widest transition-all active:scale-95 shadow-md flex items-center justify-center gap-1.5 mb-2 cursor-pointer"
+                >
+                  <Star size={14} className="fill-white" /> Rate Rider
+                </button>
+
                 <button 
                   onClick={() => setSelectedRider(null)}
-                  className="w-full py-3.5 rounded-2xl bg-muted text-foreground font-black uppercase text-xs tracking-widest hover:bg-muted/80 transition-all active:scale-95 border border-border/50 shadow-inner"
+                  className="w-full py-3.5 rounded-2xl bg-white text-foreground font-black uppercase text-xs tracking-widest hover:bg-primary/5 transition-all active:scale-95 border border-border/50 shadow-sm"
                 >
                   Close Report
                 </button>
@@ -1235,6 +1368,67 @@ const RiderAnalyticsTab = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {localRatingDialog && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm z-[100] animate-fade-in" onClick={() => setLocalRatingDialog(null)}>
+          <div className="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl border border-border animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="gradient-primary p-6 text-white text-center">
+              <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center mx-auto mb-3 shadow-inner">
+                <Star size={32} className="text-white fill-white animate-pulse" />
+              </div>
+              <h4 className="font-extrabold text-lg tracking-tight">Admin Rate: {localRatingDialog.name}</h4>
+              <p className="text-[10px] text-white/80 font-semibold uppercase tracking-widest mt-1">Submit Admin Rider Rating</p>
+            </div>
+            
+            <div className="p-6 space-y-5">
+              <div className="flex justify-center gap-2">
+                {[1, 2, 3, 4, 5].map(v => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setRatingValue(v)}
+                    className="p-1 hover:scale-110 active:scale-90 transition-transform"
+                  >
+                    <Star 
+                      size={32} 
+                      className={v <= ratingValue ? "text-yellow-400 fill-yellow-400 filter drop-shadow" : "text-muted opacity-30"} 
+                    />
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">Share Comment</label>
+                <textarea
+                  placeholder="Official Admin evaluation..."
+                  value={ratingComment}
+                  onChange={e => setRatingComment(e.target.value)}
+                  className="w-full h-20 rounded-xl border border-border/80 p-3 text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all resize-none text-foreground"
+                />
+              </div>
+              
+              <div className="flex gap-2.5 pt-1">
+                <button 
+                  type="button"
+                  onClick={() => setLocalRatingDialog(null)} 
+                  className="flex-1 py-3 rounded-xl bg-muted/50 text-muted-foreground font-bold text-xs uppercase tracking-wider hover:bg-muted transition-all"
+                  disabled={submittingRating}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleSubmitRating} 
+                  className="flex-1 py-3 rounded-xl gradient-primary text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-primary/15 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                  disabled={submittingRating}
+                >
+                  {submittingRating ? <Loader2 className="animate-spin" size={12} /> : "Submit"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1353,7 +1547,7 @@ const NgoLogsTab = () => {
       
       {/* Today's Highlight Recap */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="glass-card p-5 border-l-4 border-l-blue-500 relative overflow-hidden">
+        <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-5 border-l-4 border-l-blue-500 relative overflow-hidden">
            {loading && logs.length === 0 && <div className="absolute inset-0 bg-primary/5 animate-pulse z-10" />}
            <div className="flex items-center gap-3 mb-4">
              <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
@@ -1388,7 +1582,7 @@ const NgoLogsTab = () => {
            </div>
         </div>
 
-        <div className="glass-card p-5 border-l-4 border-l-orange-500 relative overflow-hidden">
+        <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-5 border-l-4 border-l-orange-500 relative overflow-hidden">
            {loading && logs.length === 0 && <div className="absolute inset-0 bg-primary/5 animate-pulse z-10" />}
            <div className="flex items-center gap-3 mb-4">
              <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
@@ -1464,7 +1658,7 @@ const NgoLogsTab = () => {
             <div 
               key={ngo.id} 
               onClick={() => setSelectedNgo(ngo)}
-              className="glass-card p-4 border-l-4 border-l-primary cursor-pointer hover:bg-muted font-black transition-all hover:scale-[1.02] active:scale-95"
+              className="bg-white p-4 border border-border/60 shadow-sm border-l-4 border-l-primary rounded-xl cursor-pointer hover:bg-primary/5 font-black transition-all hover:scale-[1.02] active:scale-95"
             >
               <div className="flex justify-between items-start mb-1">
                 <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest truncate max-w-[150px]">{ngo.name}</p>
@@ -1493,9 +1687,9 @@ const NgoLogsTab = () => {
           </h4>
           <span className="text-[10px] text-muted-foreground uppercase font-black">Click an NGO for Detailed Monthly Report</span>
         </div>
-        <div className="glass-card overflow-hidden">
+        <div className="bg-white rounded-2xl border border-border/60 shadow-sm overflow-hidden">
           <Table>
-            <TableHeader className="bg-muted/50">
+            <TableHeader className="bg-primary/5">
               <TableRow>
                 <TableHead>NGO Name</TableHead>
                 <TableHead className="text-center">Weekly Servings</TableHead>
@@ -1551,9 +1745,9 @@ const NgoLogsTab = () => {
         </div>
       </div>
 
-      <div className="glass-card overflow-hidden">
+      <div className="bg-white rounded-2xl border border-border/60 shadow-sm overflow-hidden">
         <Table>
-          <TableHeader>
+          <TableHeader className="bg-primary/5">
             <TableRow>
               <TableHead>Food Item</TableHead>
               <TableHead>Donor</TableHead>
@@ -1572,7 +1766,7 @@ const NgoLogsTab = () => {
                 </TableRow>
               ))
             ) : filtered.map(l => (
-              <TableRow key={l.id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedLog(l)}>
+              <TableRow key={l.id} className="cursor-pointer hover:bg-primary/5 transition-colors" onClick={() => setSelectedLog(l)}>
                 <TableCell className="font-bold text-primary">{l.title}</TableCell>
                 <TableCell>{l.donorName}</TableCell>
                 <TableCell>{l.ngoName}</TableCell>
@@ -1582,7 +1776,7 @@ const NgoLogsTab = () => {
                     {l.location}
                   </span>
                 </TableCell>
-                <TableCell className="text-center font-bold px-4 bg-muted/30 rounded-lg">{l.quantity}</TableCell>
+                <TableCell className="text-center font-bold px-4 bg-primary/5 rounded-lg">{l.quantity}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">{safeFormat(l.verificationTime, "dd MMM, hh:mm a", "—")}</TableCell>
                 <TableCell><Badge variant="secondary" className="bg-primary/10 text-primary">Verified ✓</Badge></TableCell>
               </TableRow>
@@ -1597,7 +1791,7 @@ const NgoLogsTab = () => {
       {/* NGO Report Dialog */}
       {selectedNgo && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-2 sm:p-4 backdrop-blur-sm" onClick={() => setSelectedNgo(null)}>
-          <div className="bg-card rounded-[2rem] p-5 sm:p-8 w-full max-w-4xl shadow-2xl animate-scale-in max-h-[92vh] overflow-hidden flex flex-col border border-border/50" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-[2rem] p-5 sm:p-8 w-full max-w-4xl shadow-2xl animate-scale-in max-h-[92vh] overflow-hidden flex flex-col border border-border/50" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
@@ -1633,7 +1827,7 @@ const NgoLogsTab = () => {
                   <p className="text-2xl font-black text-foreground">{selectedNgo.monthly}</p>
                   <p className="text-[10px] text-muted-foreground">Servings (Last 30 Days)</p>
                 </div>
-                <div className="bg-muted/50 p-4 rounded-2xl border border-border/50">
+                <div className="bg-slate-50 p-4 rounded-2xl border border-border/50">
                   <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Total Impact</p>
                   <p className="text-2xl font-black text-foreground">{selectedNgo.total}</p>
                   <p className="text-[10px] text-muted-foreground">Servings Collected in Total</p>
@@ -1642,7 +1836,7 @@ const NgoLogsTab = () => {
 
               {/* Impact Charts */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="glass-card p-5">
+                <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-6">
                    <h5 className="font-bold text-sm mb-4 flex items-center gap-2">
                      <TrendingUp size={16} className="text-primary" /> Daily Activity (Servings)
                    </h5>
@@ -1764,7 +1958,7 @@ const NgoLogsTab = () => {
               </div>
 
               <div className="space-y-4 px-1">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between p-4 bg-primary/5 rounded-2xl border border-border/40">
                   <span className="flex items-center gap-2 text-sm text-muted-foreground font-medium">
                     <MapPin size={16} className="text-primary" /> Location
                   </span>
@@ -1863,14 +2057,14 @@ const RegistrationRequestsTab = () => {
           {[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-2xl" />)}
         </div>
       ) : requests.length === 0 ? (
-        <div className="text-center py-20 glass-card">
+        <div className="text-center py-20 bg-white rounded-2xl border border-border/60 shadow-sm">
            <UserCog size={40} className="mx-auto text-muted-foreground/30 mb-3" />
            <p className="text-sm font-bold uppercase tracking-widest opacity-50">No registration requests</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">
           {requests.map((r) => (
-            <div key={r.id} className="glass-card-elevated p-4 animate-fade-in">
+              <div key={r.id} className="bg-white rounded-2xl border border-border/60 shadow-sm p-4 animate-fade-in relative border-l-4 border-l-primary/30">
               <div className="flex items-start justify-between mb-2">
                 <div>
                   <h4 className="font-black text-foreground text-sm uppercase tracking-tight">{r.full_name}</h4>
@@ -1878,9 +2072,9 @@ const RegistrationRequestsTab = () => {
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">📞 {r.phone}</p>
                   {r.address && <p className="text-xs text-muted-foreground leading-relaxed">📍 {r.address}</p>}
                   {r.organization && <p className="text-xs text-muted-foreground leading-relaxed font-bold">🏢 {r.organization}</p>}
-                  {r.reason && <p className="text-[11px] text-foreground bg-muted/50 p-2 rounded-lg mt-2 italic border-l-2 border-primary/20">"{r.reason}"</p>}
+                  {r.reason && <p className="text-[11px] text-foreground bg-primary/5 p-3 rounded-xl mt-2 italic border-l-2 border-primary/20">"{r.reason}"</p>}
                 </div>
-                <Badge className={r.status === "approved" ? "bg-success/10 text-success border-success/20" : r.status === "rejected" ? "bg-destructive/10 text-destructive border-destructive/20" : "bg-muted text-muted-foreground"}>
+                <Badge className={r.status === "approved" ? "bg-success/10 text-success border-success/20" : r.status === "rejected" ? "bg-destructive/10 text-destructive border-destructive/20" : "bg-muted/30 text-muted-foreground"}>
                   {r.status.toUpperCase()}
                 </Badge>
               </div>
@@ -1968,12 +2162,18 @@ const RiderTrackerTab = () => {
   useEffect(() => {
     fetchRiders();
     
+    // Add polling fallback to ensure real-time updates even if subscription fails
+    const pollInterval = setInterval(() => {
+      fetchRiders();
+    }, 15000); // 15 seconds
+
     // Use a unique channel ID to avoid "already subscribed" errors during rapid remounts
     const channelId = `admin-rider-tracking-${Math.random().toString(36).substring(7)}`;
     const channel = supabase.channel(channelId);
     
     channel
-      .on('postgres_changes', { event: '*', table: 'volunteer_tracking' }, () => {
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'volunteer_tracking' }, () => {
+        console.log("Real-time update received: volunteer_tracking");
         fetchRiders();
       })
       .subscribe((status) => {
@@ -1983,12 +2183,20 @@ const RiderTrackerTab = () => {
       });
       
     return () => {
+      clearInterval(pollInterval);
       supabase.removeChannel(channel);
     };
   }, [fetchRiders]);
 
   const activeRiders = useMemo(() => riders.filter(r => r.status && r.status !== 'delivered'), [riders]);
   const completedRiders = useMemo(() => riders.filter(r => r.status === 'delivered').slice(0, 50), [riders]);
+
+  const mapRiders = useMemo(() => activeRiders.map(r => ({
+    id: r.id,
+    latitude: r.latitude,
+    longitude: r.longitude,
+    label: r.riderName
+  })), [activeRiders]);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -2021,17 +2229,16 @@ const RiderTrackerTab = () => {
       </div>
 
       {/* Map Section */}
-      <div className="glass-card p-2 h-[350px] relative overflow-hidden mb-6 group">
-        {(activeRiders.length > 0 && activeRiders[0].latitude && activeRiders[0].longitude) ? (
+        <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-2 h-[350px] relative overflow-hidden mb-6 group">
+        {(activeRiders.length > 0) ? (
           <LeafletMap 
-            latitude={activeRiders[0].latitude} 
-            longitude={activeRiders[0].longitude} 
+            activeRiders={mapRiders}
             className="rounded-[1.5rem] w-full h-full"
           />
         ) : (
-          <div className="w-full h-full bg-muted/30 rounded-[1.5rem] flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-border/50">
-             <div className="w-16 h-16 rounded-3xl bg-muted flex items-center justify-center mb-4 shadow-inner">
-               <Navigation size={32} className="text-muted-foreground/20" />
+          <div className="w-full h-full bg-primary/5 rounded-[1.5rem] flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-border/50">
+             <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center mb-4 shadow-sm">
+               <Navigation size={32} className="text-primary/40" />
              </div>
              <h5 className="font-bold text-foreground text-sm uppercase tracking-widest">Global Dispatch Link</h5>
              <p className="text-xs text-muted-foreground font-body mt-2 max-w-[250px]">Wait for active riders with GPS coordinates to appear on the tracking system.</p>
@@ -2044,21 +2251,21 @@ const RiderTrackerTab = () => {
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="glass-card p-4 flex items-center gap-4 border-l-4 border-l-blue-500">
+        <div className="bg-white p-4 rounded-2xl border border-border/60 shadow-sm flex items-center gap-4 border-l-4 border-l-blue-500">
            <div className="p-3 rounded-xl bg-blue-500/10 text-blue-500"><Navigation size={20} /></div>
            <div>
              <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">En Route</p>
              <p className="text-xl font-bold text-foreground">{activeRiders.filter(r => r.status === 'en-route').length}</p>
            </div>
         </div>
-        <div className="glass-card p-4 flex items-center gap-4 border-l-4 border-l-orange-500">
+        <div className="bg-white p-4 rounded-2xl border border-border/60 shadow-sm flex items-center gap-4 border-l-4 border-l-orange-500">
            <div className="p-3 rounded-xl bg-orange-500/10 text-orange-500"><MapPin size={20} /></div>
            <div>
              <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Arrived at Pickup</p>
              <p className="text-xl font-bold text-foreground">{activeRiders.filter(r => r.status === 'arrived').length}</p>
            </div>
         </div>
-        <div className="glass-card p-4 flex items-center gap-4 border-l-4 border-l-success">
+        <div className="bg-white p-4 rounded-2xl border border-border/60 shadow-sm flex items-center gap-4 border-l-4 border-l-success">
            <div className="p-3 rounded-xl bg-success/10 text-success"><CheckCircle size={20} /></div>
            <div>
              <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Last 24h Finish</p>
@@ -2073,16 +2280,16 @@ const RiderTrackerTab = () => {
       </h4>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {activeRiders.length === 0 ? (
-          <div className="col-span-full py-16 bg-muted/30 rounded-[2.5rem] border-2 border-dashed border-border/50 flex flex-col items-center justify-center text-center">
-            <div className="w-16 h-16 rounded-3xl bg-muted flex items-center justify-center mb-4">
-              <Navigation size={32} className="text-muted-foreground/30" />
+          <div className="col-span-full py-16 bg-primary/5 rounded-[2.5rem] border-2 border-dashed border-border/50 flex flex-col items-center justify-center text-center">
+            <div className="w-16 h-16 rounded-3xl bg-white flex items-center justify-center mb-4">
+              <Navigation size={32} className="text-primary/30" />
             </div>
             <h5 className="font-bold text-foreground text-sm">Quiet Hour</h5>
             <p className="text-xs text-muted-foreground font-body mt-1">No riders are currently out on deliveries.</p>
           </div>
         ) : (
           activeRiders.map(rider => (
-            <div key={rider.id} className="glass-card-elevated p-5 relative overflow-hidden group hover:shadow-2xl hover:shadow-primary/5 transition-all duration-500 rounded-[2rem]">
+            <div key={rider.id} className="bg-white rounded-[2rem] border border-border/60 shadow-sm p-5 relative overflow-hidden group hover:shadow-2xl hover:shadow-primary/5 transition-all duration-500">
               <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-bl-[5rem] -mr-12 -mt-12 -z-10 group-hover:bg-primary/10 transition-colors" />
               
               <div className="flex items-center justify-between mb-4">
@@ -2101,7 +2308,7 @@ const RiderTrackerTab = () => {
                 </div>
               </div>
 
-              <div className="space-y-3 bg-muted/40 p-4 rounded-3xl border border-border/30 backdrop-blur-sm">
+              <div className="space-y-3 bg-white p-4 rounded-3xl border border-border/30">
                  <div className="flex items-start gap-2.5">
                    <div className="mt-1 w-1.5 h-1.5 rounded-full bg-primary" />
                    <div className="flex-1 min-w-0">
@@ -2153,10 +2360,10 @@ const RiderTrackerTab = () => {
           </h3>
           <span className="text-[10px] text-muted-foreground font-mono">Showing last {completedRiders.length} successful tasks</span>
         </div>
-        <div className="glass-card rounded-3xl border border-border/50 overflow-hidden">
+        <div className="bg-white rounded-3xl border border-border/50 overflow-hidden">
           <div className="overflow-x-auto">
             <Table>
-              <TableHeader className="bg-muted/50 border-b border-border/50">
+              <TableHeader className="bg-primary/5 border-b border-border/50">
                 <TableRow>
                   <TableHead className="text-[10px] uppercase font-black tracking-wider py-4">Rider</TableHead>
                   <TableHead className="text-[10px] uppercase font-black tracking-wider py-4">Package & Destination</TableHead>
@@ -2236,6 +2443,7 @@ const UserManagementTab = () => {
   const [search, setSearch] = useState("");
   const [filterToday, setFilterToday] = useState(false);
   const [roleFilter, setRoleFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [userActivity, setUserActivity] = useState<any[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
@@ -2306,15 +2514,17 @@ const UserManagementTab = () => {
     return users.filter(u => {
       const matchesSearch = 
         (u.full_name || "").toLowerCase().includes(search.toLowerCase()) || 
-        (u.email || "").toLowerCase().includes(search.toLowerCase());
+        (u.email || "").toLowerCase().includes(search.toLowerCase()) ||
+        (u.phone || "").toLowerCase().includes(search.toLowerCase());
       
       const isToday = u.created_at && new Date(u.created_at).toDateString() === new Date().toDateString();
       const matchesDate = filterToday ? isToday : true;
       const matchesRole = roleFilter === "all" ? true : u.role === roleFilter;
+      const matchesStatus = statusFilter === "all" ? true : statusFilter === "blocked" ? u.is_blocked : !u.is_blocked;
 
-      return matchesSearch && matchesDate && matchesRole;
+      return matchesSearch && matchesDate && matchesRole && matchesStatus;
     });
-  }, [users, search, filterToday, roleFilter]);
+  }, [users, search, filterToday, roleFilter, statusFilter]);
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -2325,7 +2535,7 @@ const UserManagementTab = () => {
         </h3>
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
           <Select value={roleFilter} onValueChange={setRoleFilter}>
-            <SelectTrigger className="w-[130px] h-10 rounded-xl">
+            <SelectTrigger className="w-[120px] h-10 rounded-xl">
               <SelectValue placeholder="All Roles" />
             </SelectTrigger>
             <SelectContent>
@@ -2336,10 +2546,20 @@ const UserManagementTab = () => {
               <SelectItem value="admin">Admins</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[120px] h-10 rounded-xl">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="blocked">Blocked</SelectItem>
+            </SelectContent>
+          </Select>
           <div className="relative flex-1 md:w-64">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input 
-              placeholder="Search users..." 
+              placeholder="Search by name, phone, email..." 
               value={search} 
               onChange={e => setSearch(e.target.value)} 
               className="pl-9 h-10 rounded-xl"
@@ -2369,7 +2589,7 @@ const UserManagementTab = () => {
             <div 
               key={u.id} 
               onClick={() => { setSelectedUser(u); fetchUserActivity(u.id); }}
-              className={`glass-card p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in hover:bg-muted/20 cursor-pointer transition-all ${u.is_blocked ? "opacity-75 bg-destructive/5" : ""}`}
+              className={`bg-white rounded-2xl border border-border/60 shadow-sm p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in hover:bg-primary/5 cursor-pointer transition-all ${u.is_blocked ? "opacity-75 bg-destructive/5" : ""}`}
             >
               <div className="flex items-center gap-3 w-full sm:w-auto">
                 <div className={`w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${u.is_blocked ? "bg-destructive/20 text-destructive" : "bg-primary/10 text-primary"}`}>
@@ -2438,9 +2658,9 @@ const UserManagementTab = () => {
               
               <div className="p-8 space-y-6">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border border-border/40">
+                  <div className="flex items-center justify-between p-4 bg-primary/5 rounded-2xl border border-border/40">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center shadow-sm">
+                      <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shadow-sm">
                         <MapPin size={14} className="text-primary" />
                       </div>
                       <div>
@@ -2449,9 +2669,9 @@ const UserManagementTab = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border border-border/40">
+                  <div className="flex items-center justify-between p-4 bg-primary/5 rounded-2xl border border-border/40">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-background flex items-center justify-center shadow-sm">
+                      <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shadow-sm">
                         <Phone size={14} className="text-primary" />
                       </div>
                       <div>

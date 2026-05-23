@@ -17,17 +17,11 @@ const VolunteerDashboard = () => {
       return cached ? JSON.parse(cached) : [];
     } catch { return []; }
   });
-  const [marketDonations, setMarketDonations] = useState<any[]>(() => {
-    try {
-      const cached = localStorage.getItem("cache_v_market");
-      return cached ? JSON.parse(cached) : [];
-    } catch { return []; }
-  });
+  
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (searchParams.get("tab") as "assigned" | "market") || "assigned";
-  const setActiveTab = (tab: "assigned" | "market") => setSearchParams({ tab }, { replace: true });
+  const activeTab = "assigned";
 
-  const [loading, setLoading] = useState(pickups.length === 0 && marketDonations.length === 0);
+  const [loading, setLoading] = useState(pickups.length === 0);
 
   // Simplified BottomNav for better UX
   const volunteerNav = [
@@ -43,7 +37,7 @@ const VolunteerDashboard = () => {
     if (showLoading) setLoading(true);
 
     try {
-      const [assignedRes, marketRes, trackingRes, ratingsRes, notificationsRes] = await Promise.all([
+      const [assignedRes, trackingRes, ratingsRes, notificationsRes] = await Promise.all([
         supabase
           .from("food_donations")
           .select("*")
@@ -51,15 +45,7 @@ const VolunteerDashboard = () => {
           .in("status", ["picked_up", "accepted"])
           .order("created_at", { ascending: false }),
         
-        supabase
-          .from("food_donations")
-          .select("*")
-          .eq("status", "posted")
-          .is("assigned_volunteer_id", null)
-          .order("created_at", { ascending: false })
-          .limit(20),
-
-        supabase.from("volunteer_tracking").select("id, status").eq("volunteer_id", user.id),
+        supabase.from("volunteer_tracking").select("donation_id, status").eq("volunteer_id", user.id),
 
         supabase
           .from("donation_ratings")
@@ -74,27 +60,19 @@ const VolunteerDashboard = () => {
       ]);
       
       const assignedRaw = assignedRes.data || [];
-      const marketRaw = marketRes.data || [];
 
-      // Fetch donor profiles separately
-      const donorIds = [...new Set([...assignedRaw, ...marketRaw].map(d => d.donor_id))].filter(Boolean);
-      let donorProfiles: any[] = [];
+      // Manual Enrichment for donor profiles
+      const donorIds = [...new Set(assignedRaw.map(d => d.donor_id))].filter(Boolean);
+      let profileMap = new Map();
       if (donorIds.length > 0) {
-        const { data: pData } = await supabase.from("profiles").select("id, phone, full_name").in("id", donorIds);
-        donorProfiles = pData || [];
+        const { data: profiles } = await supabase.from("profiles").select("id, phone, full_name, avatar_url").in("id", donorIds);
+        profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
       }
-      const donorMap = new Map(donorProfiles.map(p => [p.id, p]));
 
-      const assignedEnriched = assignedRaw.map(d => ({ ...d, donor: donorMap.get(d.donor_id) }));
-      const marketEnriched = marketRaw.map(d => ({ ...d, donor: donorMap.get(d.donor_id) }));
+      const assignedEnriched = assignedRaw.map(d => ({ ...d, donor: profileMap.get(d.donor_id) }));
 
       setPickups(assignedEnriched);
-      setMarketDonations(marketEnriched);
       setUnreadNotifications(notificationsRes.count || 0);
-
-      // Silent cache update
-      if (assignedRes.data) localStorage.setItem("cache_v_pickups", JSON.stringify(assignedEnriched));
-      if (marketRes.data) localStorage.setItem("cache_v_market", JSON.stringify(marketEnriched));
 
       const tracking = trackingRes.data || [];
       const ratingsData = ratingsRes.data || [];
@@ -102,13 +80,21 @@ const VolunteerDashboard = () => {
         ? (ratingsData.reduce((sum, r: any) => sum + r.rating, 0) / ratingsData.length).toFixed(1)
         : "N/A";
 
+      // A delivery is active if it's assigned to me AND not delivered yet
+      const activeCount = assignedEnriched.length;
+      const doneCount = tracking.filter(t => t.status === "delivered").length;
+
       setStats({
-        done: tracking.filter(t => t.status === "delivered").length,
-        active: tracking.filter(t => t.status !== "delivered").length,
+        done: doneCount,
+        active: activeCount,
         rating: avgRating
       });
-    } catch (error) {
+
+      // Update cache
+      localStorage.setItem("cache_v_pickups", JSON.stringify(assignedEnriched));
+    } catch (error: any) {
       console.error("Volunteer dashboard fetch error:", error);
+      toast.error("Failed to fetch jobs: " + (error.message || "Connection error"));
     } finally {
       setLoading(false);
     }
@@ -122,17 +108,18 @@ const VolunteerDashboard = () => {
     if (authLoading || !user) return;
     
     // Only show loading if we really have no data yet
-    fetchData(pickups.length === 0 && marketDonations.length === 0);
+    fetchData(pickups.length === 0);
 
-    // Add real-time listener for market updates
+    // Add real-time listener for assignment updates
     const channel = supabase
-      .channel("volunteer-market-updates")
+      .channel("volunteer-assignment-updates")
       .on(
         "postgres_changes",
         {
-          event: "*",
+          event: "UPDATE",
           schema: "public",
           table: "food_donations",
+          filter: `assigned_volunteer_id=eq.${user.id}`,
         },
         () => {
           fetchData(false); // Don't show loading skeletons for bg updates
@@ -186,7 +173,7 @@ const VolunteerDashboard = () => {
 
   const handleCall = (phone: string | null) => {
     if (!phone) {
-      toast.error("Donor's contact number is not available.");
+      toast.error("Donor contact number not found in their profile.");
       return;
     }
     window.location.href = `tel:${phone}`;
@@ -194,10 +181,19 @@ const VolunteerDashboard = () => {
 
   const handleWhatsAppChat = (phone: string | null) => {
     if (!phone) {
-      toast.error("Donor's contact number is not available.");
+      toast.error("Donor's WhatsApp number is not available.");
       return;
     }
-    openWhatsApp(phone);
+    const cleanPhone = phone.replace(/\D/g, "");
+    // Resilient Pakistani number formatting
+    let formattedPhone = cleanPhone;
+    if (cleanPhone.startsWith("0")) {
+      formattedPhone = "92" + cleanPhone.substring(1);
+    } else if (cleanPhone.length === 10 && !cleanPhone.startsWith("92")) {
+      formattedPhone = "92" + cleanPhone;
+    }
+    
+    window.open(`https://wa.me/${formattedPhone}?text=Assalam o Alaikum, I am SafeBite volunteer. I am coming for food pickup.`, "_blank");
   };
 
   const getImageUrl = (url: string | null) => {
@@ -264,28 +260,13 @@ const VolunteerDashboard = () => {
       </div>
 
       <div className="page-padding -mt-4 relative z-10">
-        <div className="flex gap-2 p-1.5 bg-muted rounded-2xl mb-6">
-          <button 
-            onClick={() => setActiveTab("assigned")}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "assigned" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
-          >
-            My Assignments
-          </button>
-          <button 
-            onClick={() => setActiveTab("market")}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === "market" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
-          >
-            Marketplace
-          </button>
-        </div>
-
         {loading ? (
           <div className="flex flex-col gap-3">
             {[1, 2, 3].map(i => (
               <div key={i} className="w-full h-24 bg-muted animate-pulse rounded-2xl" />
             ))}
           </div>
-        ) : activeTab === "assigned" ? (
+        ) : (
           <>
             <button onClick={() => navigate("/volunteer/tracking")} className="w-full glass-card-elevated p-4 flex items-center gap-4 mb-6">
               <div className="w-12 h-12 rounded-2xl bg-secondary/10 flex items-center justify-center relative">
@@ -312,7 +293,7 @@ const VolunteerDashboard = () => {
                     <div key={p.id} className="food-card p-3">
                       <div className="flex items-center gap-3">
                         {imgUrl ? (
-                          <img src={imgUrl} alt={p.title} className="w-16 h-16 rounded-xl object-cover" />
+                          <img src={imgUrl} alt={p.title} loading="lazy" className="w-16 h-16 rounded-xl object-cover" />
                         ) : (
                           <div className="w-16 h-16 rounded-xl bg-muted flex items-center justify-center">
                             <Package size={24} className="text-muted-foreground" />
@@ -351,47 +332,6 @@ const VolunteerDashboard = () => {
                         </button>
                         <button onClick={() => handleStartPickup(p.id)} className="flex-[2] py-2.5 rounded-xl font-bold text-primary-foreground gradient-primary text-xs transition-all hover:opacity-90 active:scale-[0.98]">
                           Start Tracking
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <h2 className="text-lg font-bold text-foreground mb-3">Available for Pickup 🍎</h2>
-            <p className="text-[10px] text-muted-foreground mb-4">Claim these unassigned donations to start delivering.</p>
-            {marketDonations.length === 0 ? (
-              <div className="text-center py-10">
-                <Utensils size={40} className="text-muted-foreground mx-auto mb-2 opacity-50" />
-                <p className="text-sm text-muted-foreground font-body">Marketplace is empty right now.</p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {marketDonations.map((p) => {
-                  const imgUrl = getImageUrl(p.image_url);
-                  return (
-                    <div key={p.id} className="food-card p-3">
-                      <div className="flex items-center gap-3 mb-3">
-                        {imgUrl ? (
-                          <img src={imgUrl} alt={p.title} className="w-14 h-14 rounded-xl object-cover" />
-                        ) : (
-                          <div className="w-14 h-14 rounded-xl bg-muted flex items-center justify-center">
-                            <Utensils size={20} className="text-muted-foreground" />
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-semibold text-foreground text-sm truncate">{p.title}</h4>
-                          <p className="text-[10px] text-muted-foreground font-body">📍 {p.location}</p>
-                          <p className="text-[10px] text-primary font-medium mt-0.5">{p.quantity} servings · {p.pickup_day}</p>
-                        </div>
-                        <button 
-                          onClick={() => handleClaimDonation(p.id)}
-                          className="px-4 py-2 rounded-xl text-[11px] font-bold gradient-primary text-white shadow-lg shadow-primary/20"
-                        >
-                          Claim
                         </button>
                       </div>
                     </div>

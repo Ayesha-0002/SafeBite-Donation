@@ -52,6 +52,18 @@ app.post("/api/send-otp", async (req, res) => {
       res.json({ success: true, message: `OTP sent via ${isWhatsApp ? 'WhatsApp' : 'SMS'}` });
     } catch (err: any) {
       console.error("Twilio error:", err);
+      // Handle common Twilio trial/limit restrictions
+      const isLimitError = err.message?.includes("limit") || err.code === 63038 || err.status === 429;
+      const isUnverifiedError = err.code === 21608;
+
+      if (isLimitError || isUnverifiedError) {
+        console.log(`[FALLBACK] Twilio restriction (${err.code}): ${err.message}. Falling back to Simulation Mode for OTP: ${otp}`);
+        return res.json({ 
+          success: true, 
+          message: isUnverifiedError ? "Twilio trial restriction: Unverified number." : "Twilio account limit reached.", 
+          demoCode: otp 
+        });
+      }
       res.status(500).json({ error: "Failed to send SMS", details: err.message });
     }
   } else {

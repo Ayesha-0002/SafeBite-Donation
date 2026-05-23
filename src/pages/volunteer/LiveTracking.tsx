@@ -18,17 +18,15 @@ const LiveTracking = () => {
   const [status, setStatus] = useState<DeliveryStatus>("en-route");
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
-  const [eta, setEta] = useState(20);
-  const [distance, setDistance] = useState(5.2);
+  const [eta, setEta] = useState(0);
+  const [distance, setDistance] = useState(0);
   const [deliveryPhoto, setDeliveryPhoto] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [receiverName, setReceiverName] = useState("");
   const [signatureBase64, setSignatureBase64] = useState<string | null>(null);
 
-  const pickupLat = 31.5204;
-  const pickupLng = 74.3587;
-  const dropoffLat = 31.4804;
-  const dropoffLng = 74.3187;
+  const [pickupCoords, setPickupCoords] = useState({ lat: 31.5204, lng: 74.3587 });
+  const [dropoffCoords, setDropoffCoords] = useState({ lat: 31.4804, lng: 74.3187 });
 
   const calcDistance = useCallback((lat1: number, lng1: number, lat2: number, lng2: number) => {
     const R = 6371;
@@ -48,12 +46,18 @@ const LiveTracking = () => {
     
     const { data: donationData, error } = await supabase
       .from("food_donations")
-      .select("title, location, donor_id, ngo_verified_by")
+      .select("title, location, donor_id, ngo_verified_by, status")
       .eq("id", donationId)
       .single();
     
     if (donationData) {
       setDonation({ title: donationData.title, location: donationData.location });
+      if (donationData.status === "delivered") setStatus("delivered");
+      else if (donationData.status === "picked_up") setStatus("arrived");
+
+      // Generate stable coordinates for this donation if not present
+      const h = donationId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 100;
+      setPickupCoords({ lat: 31.5204 + (h * 0.0005), lng: 74.3587 + (h * 0.0005) });
       
       // Fetch donor profile
       const { data: donorProfile } = await supabase
@@ -82,6 +86,8 @@ const LiveTracking = () => {
             full_name: ngoProfile.full_name, 
             address: ngoProfile.address 
           });
+          const nh = ngoProfile.full_name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 100;
+          setDropoffCoords({ lat: 31.4804 - (nh * 0.0005), lng: 74.3187 - (nh * 0.0005) });
         }
       }
     }
@@ -100,7 +106,14 @@ const LiveTracking = () => {
       const { data: updated } = await supabase.from("volunteer_tracking").update({ latitude: lat, longitude: lng, status: dbStatus, updated_at: new Date().toISOString() }).eq("id", existing.id).select().single();
       setTrackingRecord(updated);
     } else {
-      const { data: inserted } = await supabase.from("volunteer_tracking").insert({ volunteer_id: user.id, donation_id: donationId, latitude: lat, longitude: lng, status: dbStatus }).select().single();
+      const { data: inserted } = await supabase.from("volunteer_tracking").insert({ 
+        volunteer_id: user.id, 
+        donation_id: donationId, 
+        latitude: lat, 
+        longitude: lng, 
+        status: dbStatus,
+        updated_at: new Date().toISOString()
+      }).select().single();
       setTrackingRecord(inserted);
     }
   }, [donationId, status]);
@@ -109,16 +122,25 @@ const LiveTracking = () => {
     if (donor?.phone) {
       window.location.href = `tel:${donor.phone}`;
     } else {
-      toast.error("Donor's phone number is not available.");
+      toast.error("Donor contact number not found in their profile.");
     }
   };
 
   const handleWhatsAppDonor = () => {
     if (donor?.phone) {
       const cleanPhone = donor.phone.replace(/\D/g, "");
-      window.open(`https://wa.me/${cleanPhone}?text=Assalam o Alaikum, I am the SafeBite volunteer. I am on my way to pick up the donation.`, "_blank");
+      // Resilient Pakistani number formatting
+      let formattedPhone = cleanPhone;
+      if (cleanPhone.startsWith("0")) {
+        formattedPhone = "92" + cleanPhone.substring(1);
+      } else if (cleanPhone.length === 10 && !cleanPhone.startsWith("92")) {
+        formattedPhone = "92" + cleanPhone;
+      }
+      
+      const msg = encodeURIComponent(`Assalam o Alaikum ${donor.full_name || 'Donor'}, I am the SafeBite volunteer. I am on my way to pick up the donation: ${donation?.title || 'food'}. Currently ${distance} km away.`);
+      window.open(`https://wa.me/${formattedPhone}?text=${msg}`, "_blank");
     } else {
-      toast.error("Donor's phone number is not available.");
+      toast.error("Donor's WhatsApp number is not available.");
     }
   };
 
@@ -130,15 +152,15 @@ const LiveTracking = () => {
     setGpsError(null);
     // Start at a point slightly away from pickup if en-route
     if (!location) {
-      setLocation({ lat: pickupLat - 0.02, lng: pickupLng - 0.02 });
+      setLocation({ lat: pickupCoords.lat - 0.02, lng: pickupCoords.lng - 0.02 });
     }
-  }, [location, pickupLat, pickupLng]);
+  }, [location, pickupCoords]);
 
   useEffect(() => {
     if (isSimulated && location) {
       simulationInterval.current = setInterval(() => {
-        const targetLat = status === "en-route" ? pickupLat : dropoffLat;
-        const targetLng = status === "en-route" ? pickupLng : dropoffLng;
+        const targetLat = status === "en-route" ? pickupCoords.lat : dropoffCoords.lat;
+        const targetLng = status === "en-route" ? pickupCoords.lng : dropoffCoords.lng;
         
         setLocation(prev => {
           if (!prev) return prev;
@@ -160,12 +182,12 @@ const LiveTracking = () => {
     return () => {
       if (simulationInterval.current) clearInterval(simulationInterval.current);
     };
-  }, [isSimulated, location, status, pickupLat, pickupLng, dropoffLat, dropoffLng]);
+  }, [isSimulated, location, status, pickupCoords, dropoffCoords]);
 
   useEffect(() => {
     if (isSimulated && location) {
-      const targetLat = status === "en-route" ? pickupLat : dropoffLat;
-      const targetLng = status === "en-route" ? pickupLng : dropoffLng;
+      const targetLat = status === "en-route" ? pickupCoords.lat : dropoffCoords.lat;
+      const targetLng = status === "en-route" ? pickupCoords.lng : dropoffCoords.lng;
       const dist = calcDistance(location.lat, location.lng, targetLat, targetLng);
       setDistance(+dist.toFixed(2));
       const estimatedMinutes = Math.ceil((dist / 25) * 60);
@@ -177,7 +199,7 @@ const LiveTracking = () => {
       }
       updateLocationInDb(location.lat, location.lng);
     }
-  }, [location, isSimulated, status, pickupLat, pickupLng, dropoffLat, dropoffLng, calcDistance, updateLocationInDb]);
+  }, [location, isSimulated, status, pickupCoords, dropoffCoords, calcDistance, updateLocationInDb]);
 
   useEffect(() => {
     if (isSimulated) return; // Don't use real GPS if simulation is on
@@ -194,8 +216,8 @@ const LiveTracking = () => {
         setGpsError(null);
 
         // Check if we are going to pickup or dropoff
-        const targetLat = status === "en-route" ? pickupLat : dropoffLat;
-        const targetLng = status === "en-route" ? pickupLng : dropoffLng;
+        const targetLat = status === "en-route" ? pickupCoords.lat : dropoffCoords.lat;
+        const targetLng = status === "en-route" ? pickupCoords.lng : dropoffCoords.lng;
 
         const dist = calcDistance(latitude, longitude, targetLat, targetLng);
         setDistance(+dist.toFixed(2));
@@ -226,7 +248,7 @@ const LiveTracking = () => {
       }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [calcDistance, updateLocationInDb, status]);
+  }, [calcDistance, updateLocationInDb, status, pickupCoords, dropoffCoords, isSimulated]);
 
   const handleDeliveryPhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -246,8 +268,17 @@ const LiveTracking = () => {
   };
 
   const handleSignatureSaved = (base64: string) => {
+    console.log("handleSignatureSaved called in LiveTracking, data length:", base64.length);
     setSignatureBase64(base64);
-    toast.success("Signature captured!");
+    toast.success("Signature captured! Scroll neeche karain confirm karne k liye.");
+    
+    // Smooth scroll to the next button
+    setTimeout(() => {
+      window.scrollTo({
+        top: document.body.scrollHeight,
+        behavior: "smooth"
+      });
+    }, 100);
   };
 
   const handleFinalConfirm = async () => {
@@ -297,6 +328,17 @@ const LiveTracking = () => {
             related_donation_id: donationId,
           });
         }
+
+        // Notify NGO if they verified it
+        if (donation?.ngo_verified_by) {
+          await supabase.from("notifications").insert({
+            user_id: donation.ngo_verified_by,
+            title: "Food Delivered! 🎉",
+            message: `Donation "${donation?.title}" has been successfully delivered by the rider.`,
+            type: "delivered",
+            related_donation_id: donationId,
+          });
+        }
       }
 
       setStatus("delivered");
@@ -317,11 +359,11 @@ const LiveTracking = () => {
           </div>
           <h2 className="text-xl font-bold text-foreground mb-2">Delivery Confirmed!</h2>
           <p className="text-sm text-muted-foreground font-body mb-2">Photo + Digital signature saved.</p>
-          {deliveryPhoto && <img src={deliveryPhoto} alt="Delivery proof" className="w-full h-28 object-cover rounded-xl mb-3" />}
+          {deliveryPhoto && <img src={deliveryPhoto} alt="Delivery proof" loading="lazy" className="w-full h-28 object-cover rounded-xl mb-3" />}
           {signatureBase64 && (
             <div className="bg-white rounded-xl p-2 mb-3 border border-border">
               <p className="text-xs text-muted-foreground mb-1">Receiver: <span className="font-semibold text-foreground">{receiverName}</span></p>
-              <img src={signatureBase64} alt="Signature" className="w-full h-16 object-contain" />
+              <img src={signatureBase64} alt="Signature" loading="lazy" className="w-full h-16 object-contain" />
             </div>
           )}
           <div className="bg-secondary/10 border border-secondary/20 rounded-xl p-3 mb-4">
@@ -352,7 +394,7 @@ const LiveTracking = () => {
             <div className="glass-card p-3">
               <p className="text-xs text-muted-foreground font-body mb-2 flex items-center gap-1.5"><Camera size={12} /> Delivery Photo</p>
               <div className="relative">
-                <img src={deliveryPhoto} alt="Delivery" className="w-full h-36 object-cover rounded-xl" />
+                <img src={deliveryPhoto} alt="Delivery" loading="lazy" className="w-full h-36 object-cover rounded-xl" />
                 <button onClick={() => { setDeliveryPhoto(null); setStatus("photo-proof"); deliveryPhotoRef.current?.click(); }} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-background/80 backdrop-blur flex items-center justify-center">
                   <X size={14} className="text-foreground" />
                 </button>
@@ -382,7 +424,7 @@ const LiveTracking = () => {
             {signatureBase64 ? (
               <div className="space-y-2">
                 <div className="bg-white rounded-xl p-2 border border-primary/20">
-                  <img src={signatureBase64} alt="Signature" className="w-full h-32 object-contain" />
+                  <img src={signatureBase64} alt="Signature" loading="lazy" className="w-full h-32 object-contain" />
                 </div>
                 <button onClick={() => setSignatureBase64(null)} className="w-full py-2 rounded-xl text-sm font-medium text-foreground bg-muted">
                   Retake Signature
@@ -450,7 +492,7 @@ const LiveTracking = () => {
             <p className="text-sm text-foreground font-medium">Getting GPS location...</p>
           </div>
         ) : (
-          <LeafletMap latitude={location.lat} longitude={location.lng} pickupLat={pickupLat} pickupLng={pickupLng} dropoffLat={dropoffLat} dropoffLng={dropoffLng} className="h-72" />
+          <LeafletMap latitude={location.lat} longitude={location.lng} pickupLat={pickupCoords.lat} pickupLng={pickupCoords.lng} dropoffLat={dropoffCoords.lat} dropoffLng={dropoffCoords.lng} className="h-72" />
         )}
       </div>
 
@@ -468,7 +510,7 @@ const LiveTracking = () => {
         <div className="mx-4 mt-4 glass-card-elevated p-4">
           <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2"><Camera size={16} /> Delivery Photo</h3>
           <div className="relative">
-            <img src={deliveryPhoto} alt="Delivery" className="w-full h-40 object-cover rounded-xl" />
+            <img src={deliveryPhoto} alt="Delivery" loading="lazy" className="w-full h-40 object-cover rounded-xl" />
             <button onClick={() => { setDeliveryPhoto(null); deliveryPhotoRef.current?.click(); }} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-background/80 backdrop-blur flex items-center justify-center">
               <X size={16} className="text-foreground" />
             </button>
@@ -489,22 +531,22 @@ const LiveTracking = () => {
               <p className="text-xs text-muted-foreground font-medium">{donor.phone || "Number stored"}</p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={handleCallDonor}
-              className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20"
-              title="Call Donor"
-            >
-              <Phone size={18} />
-            </button>
-            <button 
-              onClick={handleWhatsAppDonor}
-              className="w-10 h-10 rounded-xl bg-[#25D366] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/20"
-              title="WhatsApp Message"
-            >
-              <MessageCircle size={18} />
-            </button>
-          </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={handleCallDonor}
+                className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20 animate-bounce-subtle"
+                title="Call Donor"
+              >
+                <Phone size={18} />
+              </button>
+              <button 
+                onClick={handleWhatsAppDonor}
+                className="w-10 h-10 rounded-xl bg-[#25D366] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/20"
+                title="WhatsApp Message"
+              >
+                <MessageCircle size={18} />
+              </button>
+            </div>
         </div>
       )}
 

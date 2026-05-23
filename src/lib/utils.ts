@@ -5,9 +5,9 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function openWhatsApp(phone: string) {
-  // Ensure the phone number starts with a '+' or just clean it.
-  // The wa.me URL works best with international format, with or without '+'.
+export function openWhatsApp(phone: string, message: string = "Assalam o Alaikum, connecting from SafeBite.") {
   const cleanPhone = phone.replace(/\D/g, "");
-  window.open(`https://wa.me/${cleanPhone}`, "_blank");
+  // Default to Pakistan if it starts with 0
+  const formattedPhone = cleanPhone.startsWith("0") ? "92" + cleanPhone.substring(1) : cleanPhone;
+  window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`, "_blank");
 }

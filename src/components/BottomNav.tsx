@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { LucideIcon } from "lucide-react";
+import React, { memo } from "react";
 
 interface NavItem {
   icon: LucideIcon;
@@ -40,4 +41,4 @@ const BottomNav = ({ items }: BottomNavProps) => {
   );
 };
 
-export default BottomNav;
+export default memo(BottomNav);

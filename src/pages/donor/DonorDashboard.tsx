@@ -123,7 +123,7 @@ const DonorDashboard = () => {
       toast.error("Rider contact unavailable");
       return;
     }
-    setVerification({ open: true, phone, type: "call" });
+    window.location.href = `tel:${phone}`;
   };
 
   const handleWhatsApp = (phone: string | null) => {
@@ -131,18 +131,9 @@ const DonorDashboard = () => {
       toast.error("Rider WhatsApp unavailable");
       return;
     }
-    setVerification({ open: true, phone, type: "wa" });
-  };
-
-  const executeContact = () => {
-    const { phone, type } = verification;
-    if (type === "call") {
-      window.location.href = `tel:${phone}`;
-    } else if (type === "wa") {
-      const cleanPhone = phone.replace(/\D/g, "");
-      const message = encodeURIComponent(`Assalam o Alaikum, this is regarding the SafeBite food donation. I am the ${profile?.full_name || 'assigned person'}.`);
-      window.open(`https://wa.me/${cleanPhone}/?text=${message}`, "_blank");
-    }
+    const cleanPhone = phone.replace(/\D/g, "");
+    const message = encodeURIComponent(`Assalam o Alaikum, this is regarding the SafeBite food donation. I am the ${profile?.full_name || 'assigned person'}.`);
+    window.open(`https://wa.me/${cleanPhone}/?text=${message}`, "_blank");
   };
 
   const getStatusBadge = (status: string) => {
@@ -250,7 +241,7 @@ const DonorDashboard = () => {
               return (
                 <div key={d.id} className="food-card flex items-center gap-3 p-3">
                   {imgUrl ? (
-                    <img src={imgUrl} alt={d.title} className="w-16 h-16 rounded-xl object-cover" />
+                    <img src={imgUrl} alt={d.title} loading="lazy" className="w-16 h-16 rounded-xl object-cover" />
                   ) : (
                     <div className="w-16 h-16 rounded-xl bg-muted flex items-center justify-center">
                       <Package size={24} className="text-muted-foreground" />
@@ -295,13 +286,6 @@ const DonorDashboard = () => {
       </div>
 
       <BottomNav items={donorNav} />
-      
-      <ContactVerification 
-        isOpen={verification.open}
-        phoneNumber={verification.phone}
-        onClose={() => setVerification({ ...verification, open: false })}
-        onVerified={executeContact}
-      />
     </div>
   );
 };

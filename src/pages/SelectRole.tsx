@@ -75,6 +75,15 @@ const SelectRole = () => {
         })().catch(err => console.warn("Role sync failed", err));
       }
 
+      // Sync phone if missing from profile but in metadata
+      if (user.user_metadata?.phone && (!profile || !profile.phone)) {
+        (async () => {
+           await supabase.from("profiles").update({
+             phone: user.user_metadata.phone
+           }).eq("id", user.id);
+        })().catch(err => console.warn("Phone sync failed", err));
+      }
+
       if (userRoles.includes("admin")) {
         navigate("/admin", { replace: true });
         return;

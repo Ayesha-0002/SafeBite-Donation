@@ -22,13 +22,13 @@ export const ContactVerification: React.FC<ContactVerificationProps> = ({
   const [isVerifying, setIsVerifying] = useState(false);
   const [step, setStep] = useState<"request" | "verify">("request");
 
-  const handleRequestOTP = () => {
+  const handleRequestOTP = (method: "sms" | "whatsapp") => {
     setIsVerifying(true);
     // Simulate sending OTP
     setTimeout(() => {
       setIsVerifying(false);
       setStep("verify");
-      toast.success("Security OTP sent to your registered number.");
+      toast.success(method === "whatsapp" ? "Security OTP sent to your WhatsApp." : "Security OTP sent to your registered number.");
     }, 1500);
   };
 
@@ -55,11 +55,11 @@ export const ContactVerification: React.FC<ContactVerificationProps> = ({
           <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-2">
             <ShieldCheck className="text-primary" size={24} />
           </div>
-          <DialogTitle className="text-center">Security Verification</DialogTitle>
+          <DialogTitle className="text-center font-black">Security Verification</DialogTitle>
           <DialogDescription className="text-center">
             {step === "request" 
-              ? "To prevent unauthorized calls, a quick OTP verification is required."
-              : `Enter the 4-digit code sent to your device.`}
+              ? "To prevent unauthorized calls, identity verification is required."
+              : `Enter the code sent to your device via WhatsApp/SMS.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -67,37 +67,47 @@ export const ContactVerification: React.FC<ContactVerificationProps> = ({
           {step === "verify" && (
             <Input
               type="text"
-              placeholder="Enter 4-digit OTP"
+              placeholder="1234"
               value={otp}
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
-              className="text-center text-2xl tracking-[1em] font-bold"
+              className="text-center text-2xl tracking-[0.5em] font-black h-14 rounded-2xl border-2 border-primary/20 focus:border-primary"
             />
           )}
         </div>
 
         <DialogFooter className="sm:justify-center">
           {step === "request" ? (
-            <Button 
-              onClick={handleRequestOTP} 
-              disabled={isVerifying}
-              className="w-full gradient-primary"
-            >
-              {isVerifying && <Loader2 className="animate-spin mr-2" size={18} />}
-              Send Security OTP
-            </Button>
+            <div className="flex flex-col w-full gap-3">
+              <Button 
+                onClick={() => handleRequestOTP("whatsapp")} 
+                disabled={isVerifying}
+                className="w-full bg-[#25D366] hover:bg-[#20ba59] text-white font-bold h-12 rounded-xl border-none shadow-lg shadow-[#25D366]/20"
+              >
+                {isVerifying ? <Loader2 className="animate-spin mr-2" size={18} /> : <span className="mr-2">💬</span>}
+                Send OTP via WhatsApp
+              </Button>
+              <Button 
+                variant="outline"
+                onClick={() => handleRequestOTP("sms")} 
+                disabled={isVerifying}
+                className="w-full font-bold h-12 rounded-xl border-2"
+              >
+                Send via Standard SMS
+              </Button>
+            </div>
           ) : (
-            <div className="flex flex-col w-full gap-2">
+            <div className="flex flex-col w-full gap-3">
               <Button 
                 onClick={handleVerify} 
                 disabled={isVerifying || otp.length < 4}
-                className="w-full gradient-primary"
+                className="w-full gradient-primary font-black h-12 rounded-xl"
               >
                 {isVerifying && <Loader2 className="animate-spin mr-2" size={18} />}
                 Verify & Proceed
               </Button>
-              <Button variant="ghost" onClick={() => setStep("request")} className="text-xs">
-                Resend Code
-              </Button>
+              <button onClick={() => setStep("request")} className="text-[10px] uppercase font-black tracking-widest text-muted-foreground hover:text-primary transition-colors">
+                Resend Verification Code
+              </button>
             </div>
           )}
         </DialogFooter>

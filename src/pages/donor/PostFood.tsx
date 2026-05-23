@@ -143,6 +143,7 @@ const PostFood = () => {
 
         if (dbError) {
           console.error("Insert Failed:", dbError);
+          toast.error("Database Error: " + dbError.message);
           throw new Error(dbError.message || "Database insert failed");
         }
 
@@ -168,6 +169,9 @@ const PostFood = () => {
         }
 
         const { data: usersToNotify } = await supabase.from("user_roles").select("user_id").in("role", ["volunteer", "ngo"]);
+        const notifyCount = usersToNotify?.length || 0;
+        console.log(`Donation Posted. Notifying ${notifyCount} users.`);
+
         if (usersToNotify && usersToNotify.length > 0) {
           const notifications = usersToNotify.map(u => ({
             user_id: u.user_id,
@@ -181,7 +185,7 @@ const PostFood = () => {
 
         // Set to success only after success
         setStep("done");
-        toast.success("Donation Successful! We are notifying volunteers...");
+        toast.success(`Donation Successful! Notified ${notifyCount} partners.`);
 
       } catch (err: any) {
         console.error("Critical Background Error:", err);
@@ -263,7 +267,7 @@ const PostFood = () => {
             </button>
           ) : (
             <div className="relative group">
-              <img src={capturedImage} alt="Captured food" className="w-full h-56 object-cover rounded-3xl shadow-2xl" />
+              <img src={capturedImage} alt="Captured food" loading="lazy" className="w-full h-56 object-cover rounded-3xl shadow-2xl" />
               <button 
                 type="button" 
                 onClick={() => { setCapturedImage(null); setImageFile(null); }} 

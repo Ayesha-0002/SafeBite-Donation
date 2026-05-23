@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, PlusCircle, Clock, MessageCircle, User, LogOut, Settings, Award, Loader2, ArrowLeft } from "lucide-react";
+import { Home, PlusCircle, Clock, MessageCircle, User, LogOut, Settings, Award, Loader2, ArrowLeft, Phone } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -111,6 +111,20 @@ const DonorProfile = () => {
                 <div className="h-4 w-32 bg-muted animate-pulse rounded mt-1" />
               ) : (
                 <p className="text-sm font-bold text-foreground font-body">{profile?.full_name || "—"}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="glass-card-elevated p-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
+              <Phone size={18} />
+            </div>
+            <div className="flex-1">
+              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Phone Number</p>
+              {loading && !profile?.phone ? (
+                <div className="h-4 w-32 bg-muted animate-pulse rounded mt-1" />
+              ) : (
+                <p className="text-sm font-bold text-foreground font-body">{profile?.phone || "Not set"}</p>
               )}
             </div>
           </div>

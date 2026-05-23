@@ -41,7 +41,7 @@ const NgoTrackRider = () => {
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("full_name, email, phone")
+          .select("full_name, phone")
           .eq("id", don.assigned_volunteer_id)
           .single(),
       ]);
@@ -207,7 +207,7 @@ const NgoTrackRider = () => {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-foreground">{volunteer.full_name || "Rider"}</p>
-                  <p className="text-xs text-muted-foreground">{volunteer.phone || volunteer.email}</p>
+                  <p className="text-xs text-muted-foreground">{volunteer.phone || "No phone number available"}</p>
                 </div>
                 <div className="ml-auto flex gap-2">
                   <button 

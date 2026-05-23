@@ -19,11 +19,6 @@ const VolunteerPickups = () => {
   const [loading, setLoading] = useState(true);
   const [codeInput, setCodeInput] = useState("");
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
-  const [verification, setVerification] = useState<{ open: boolean; phone: string; type: "call" | "wa" | null }>({
-    open: false,
-    phone: "",
-    type: null,
-  });
 
   useEffect(() => {
     const fetch = async () => {
@@ -40,8 +35,8 @@ const VolunteerPickups = () => {
 
       if (donations && donations.length > 0) {
         const donorIds = [...new Set(donations.map(d => d.donor_id))].filter(Boolean);
-        const { data: profiles } = await supabase.from("profiles").select("id, phone, full_name").in("id", donorIds);
-        const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
+        const { data: donorProfiles } = await supabase.from("profiles").select("id, phone, full_name, avatar_url").in("id", donorIds);
+        const profileMap = new Map(donorProfiles?.map(p => [p.id, p]) || []);
         
         const enriched = donations.map(d => ({
           ...d,
@@ -58,28 +53,26 @@ const VolunteerPickups = () => {
 
   const handleWhatsAppChat = (phone: string | null) => {
     if (!phone) {
-      toast.error("Donor's contact number is not available.");
+      toast.error("Donor's WhatsApp number is not available.");
       return;
     }
-    setVerification({ open: true, phone, type: "wa" });
+    const cleanPhone = phone.replace(/\D/g, "");
+    // Resilient Pakistani number formatting
+    let formattedPhone = cleanPhone;
+    if (cleanPhone.startsWith("0")) {
+      formattedPhone = "92" + cleanPhone.substring(1);
+    } else if (cleanPhone.length === 10 && !cleanPhone.startsWith("92")) {
+      formattedPhone = "92" + cleanPhone;
+    }
+    window.open(`https://wa.me/${formattedPhone}?text=Assalam o Alaikum, I am the SafeBite volunteer. I am coming to pick up the food donation.`, "_blank");
   };
 
   const handleCall = (phone: string | null) => {
     if (!phone) {
-      toast.error("Donor's contact number is not available.");
+      toast.error("Donor contact number not found in their profile.");
       return;
     }
-    setVerification({ open: true, phone, type: "call" });
-  };
-
-  const executeContact = () => {
-    const { phone, type } = verification;
-    if (type === "call") {
-      window.location.href = `tel:${phone}`;
-    } else if (type === "wa") {
-      const cleanPhone = phone.replace(/\D/g, "");
-      window.open(`https://wa.me/${cleanPhone}?text=Assalam o Alaikum, I am the SafeBite volunteer. I am coming to pick up the food donation.`, "_blank");
-    }
+    window.location.href = `tel:${phone}`;
   };
 
   const getImageUrl = (url: string | null) => {
@@ -166,7 +159,7 @@ const VolunteerPickups = () => {
               <div key={p.id} className="food-card p-3">
                 <div className="flex items-start gap-3">
                   {imgUrl ? (
-                    <img src={imgUrl} alt={p.title} className="w-20 h-20 rounded-xl object-cover" />
+                    <img src={imgUrl} alt={p.title} loading="lazy" className="w-20 h-20 rounded-xl object-cover" />
                   ) : (
                     <div className="w-20 h-20 rounded-xl bg-muted flex items-center justify-center">
                       <Package size={28} className="text-muted-foreground" />
@@ -190,7 +183,7 @@ const VolunteerPickups = () => {
                 {/* Delivery photo proof section */}
                 {isDelivered && deliveryImg && (
                   <div className="mt-3 rounded-xl overflow-hidden border border-border">
-                    <img src={deliveryImg} alt="Delivery proof" className="w-full h-28 object-cover" />
+                    <img src={deliveryImg} alt="Delivery proof" loading="lazy" className="w-full h-28 object-cover" />
                     <div className="p-2 bg-muted/50 flex items-center gap-2">
                       <Camera size={14} className="text-muted-foreground" />
                       <span className="text-xs text-muted-foreground font-body">Delivery Photo Proof</span>
@@ -264,13 +257,6 @@ const VolunteerPickups = () => {
         )}
       </div>
       <BottomNav items={volunteerNav} />
-      
-      <ContactVerification 
-        isOpen={verification.open}
-        phoneNumber={verification.phone}
-        onClose={() => setVerification({ ...verification, open: false })}
-        onVerified={executeContact}
-      />
     </div>
   );
 };

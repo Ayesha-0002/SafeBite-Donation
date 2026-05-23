@@ -2,5 +2,5 @@
   "name": "SafeBite",
   "description": "SafeBite: A secure community food sharing platform with real-time tracking and quality assurance.",
   "requestFramePermissions": ["geolocation"],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

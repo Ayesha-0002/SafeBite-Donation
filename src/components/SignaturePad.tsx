@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import SignatureCanvas from "react-signature-canvas";
 import { RotateCcw, Check } from "lucide-react";
+import { toast } from "sonner";
 
 interface SignaturePadProps {
   onSave: (signatureBase64: string) => void;
@@ -18,8 +19,25 @@ const SignaturePad = ({ onSave, onClear }: SignaturePadProps) => {
   };
 
   const handleSave = () => {
-    if (sigRef.current && !sigRef.current.isEmpty()) {
+    console.log("handleSave initiated");
+    if (!sigRef.current) {
+      console.error("Signature ref is missing");
+      return;
+    }
+
+    if (sigRef.current.isEmpty()) {
+      toast.error("Pehle sign karein (Please sign first)");
+      return;
+    }
+
+    try {
       const base64 = sigRef.current.getTrimmedCanvas().toDataURL("image/png");
+      console.log("Signature captured successfully");
+      onSave(base64);
+      // We don't need a success toast here because the parent will show one
+    } catch (err) {
+      console.error("Error capturing signature:", err);
+      const base64 = sigRef.current.getCanvas().toDataURL("image/png");
       onSave(base64);
     }
   };
@@ -34,7 +52,16 @@ const SignaturePad = ({ onSave, onClear }: SignaturePadProps) => {
             className: "w-full h-40",
             style: { width: "100%", height: "160px" },
           }}
-          onBegin={() => setIsEmpty(false)}
+          onBegin={() => {
+            console.log("Signature started");
+            setIsEmpty(false);
+          }}
+          onEnd={() => {
+            console.log("Signature ended");
+            if (sigRef.current && !sigRef.current.isEmpty()) {
+              setIsEmpty(false);
+            }
+          }}
         />
       </div>
       <div className="flex gap-2">
