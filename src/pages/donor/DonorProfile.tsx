@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, PlusCircle, Clock, MessageCircle, User, LogOut, Settings, Award, Loader2, ArrowLeft, Phone } from "lucide-react";
+import { Home, PlusCircle, Clock, MessageCircle, User, LogOut, Settings, Award, Loader2, ArrowLeft, Phone, Scan } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 
 const donorNav = [
   { icon: Home, label: "Home", path: "/donor" },
-  { icon: PlusCircle, label: "Donate", path: "/donor/post" },
+  { icon: Scan, label: "Donate", path: "/donor/post" },
   { icon: Clock, label: "History", path: "/donor/history" },
   { icon: User, label: "Profile", path: "/donor/profile" },
 ];
@@ -25,7 +25,7 @@ const DonorProfile = () => {
 
       try {
         const [profileRes, donationsRes] = await Promise.all([
-          !authProfile ? supabase.from("profiles").select("*").eq("id", user.id).maybeSingle() : Promise.resolve({ data: authProfile }),
+          supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
           supabase.from("food_donations").select("id, quantity, status").eq("donor_id", user.id),
         ]);
 
@@ -68,25 +68,18 @@ const DonorProfile = () => {
         <h1 className="text-lg font-bold">My Profile</h1>
       </div>
 
-      <div className="gradient-primary px-5 pt-10 pb-12 rounded-b-[2.5rem] text-center shadow-lg mx-2 mt-2">
+      <div className="gradient-primary px-5 pt-10 pb-12 rounded-b-[2.5rem] text-center shadow-lg">
         <div className="w-20 h-20 rounded-full bg-primary-foreground/20 backdrop-blur-sm border-2 border-white/20 flex items-center justify-center mx-auto mb-3 text-2xl font-bold text-primary-foreground">
           {initials}
         </div>
         <h2 className="text-xl font-bold text-primary-foreground leading-tight">{profile?.full_name || "Donor"}</h2>
-        <p className="text-sm text-primary-foreground/70 font-body">{profile?.email || ""}</p>
+        <div className="inline-flex items-center mt-1.5 bg-white/20 text-white text-[9px] uppercase font-black tracking-widest px-2.5 py-0.5 rounded-full border border-white/20 shadow-sm">
+          Donor
+        </div>
+        <p className="text-sm text-primary-foreground/70 font-body mt-1.5">{profile?.email || ""}</p>
       </div>
 
-      <div className="page-padding -mt-8 relative z-10">
-        <div className="glass-card-elevated p-4 flex items-center gap-4 mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-warning/10 flex items-center justify-center">
-            <Award size={24} className="text-warning" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-foreground">Food Hero 🏆</h3>
-            <p className="text-xs text-muted-foreground font-body">{stats.delivered > 0 ? `${stats.delivered} successful deliveries!` : "Start donating to earn badges"}</p>
-          </div>
-        </div>
-
+      <div className="page-padding mt-6 relative z-10">
         <div className="grid grid-cols-3 gap-3 mb-6">
           {[
             { value: stats.donations.toString(), label: "Donations" },

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Home, MapPin, Package, MessageCircle, User, Navigation, Bell, Loader2, Utensils, LogOut, Phone, Eye } from "lucide-react";
+import { Home, MapPin, Package, MessageCircle, User, Navigation, Bell, Loader2, Utensils, LogOut, Phone, X } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -22,6 +22,7 @@ const VolunteerDashboard = () => {
   const activeTab = "assigned";
 
   const [loading, setLoading] = useState(pickups.length === 0);
+  const [activePopup, setActivePopup] = useState<{ title: string; desc: string; value: string } | null>(null);
 
   // Simplified BottomNav for better UX
   const volunteerNav = [
@@ -31,6 +32,7 @@ const VolunteerDashboard = () => {
   ];
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [stats, setStats] = useState({ done: 0, active: 0, rating: "0" });
+  const [ngoName, setNgoName] = useState<string | null>(() => localStorage.getItem("sb_v_ngo_name"));
 
   const fetchData = useCallback(async (showLoading = true) => {
     if (!user) return;
@@ -90,6 +92,23 @@ const VolunteerDashboard = () => {
         rating: avgRating
       });
 
+      // Fetch currently assigned NGO name
+      try {
+        const { data: myProfile } = await supabase.from("profiles").select("ngo_id").eq("id", user.id).maybeSingle();
+        if (myProfile?.ngo_id) {
+          const { data: ngoProfile } = await supabase.from("profiles").select("full_name").eq("id", myProfile.ngo_id).maybeSingle();
+          if (ngoProfile?.full_name) {
+            setNgoName(ngoProfile.full_name);
+            localStorage.setItem("sb_v_ngo_name", ngoProfile.full_name);
+          }
+        } else {
+          setNgoName(null);
+          localStorage.removeItem("sb_v_ngo_name");
+        }
+      } catch (pErr) {
+        console.warn("Could not fetch volunteer's NGO info:", pErr);
+      }
+
       // Update cache
       localStorage.setItem("cache_v_pickups", JSON.stringify(assignedEnriched));
     } catch (error: any) {
@@ -136,6 +155,35 @@ const VolunteerDashboard = () => {
     if (!user) return;
 
     try {
+      // Get target donation info (specifically the ngo_verified_by field)
+      const { data: targetDonation, error: fetchDonError } = await supabase
+        .from("food_donations")
+        .select("ngo_verified_by, title")
+        .eq("id", donationId)
+        .single();
+
+      if (fetchDonError || !targetDonation) {
+        toast.error("Donation details could not be retrieved.");
+        return;
+      }
+
+      // Check if rider already has any active/in-progress donations with a different NGO
+      const { data: myActiveDonations, error: activeError } = await supabase
+        .from("food_donations")
+        .select("ngo_verified_by, title")
+        .eq("assigned_volunteer_id", user.id)
+        .in("status", ["accepted", "picked_up"]);
+
+      if (!activeError && myActiveDonations && myActiveDonations.length > 0) {
+        const hasOtherNgo = myActiveDonations.some(
+          d => d.ngo_verified_by && d.ngo_verified_by !== targetDonation.ngo_verified_by
+        );
+        if (hasOtherNgo) {
+          toast.error("A rider cannot pick up donations from two different NGOs at the same time!");
+          return;
+        }
+      }
+
       const { error } = await supabase
         .from("food_donations")
         .update({ 
@@ -211,23 +259,21 @@ const VolunteerDashboard = () => {
       <div className="gradient-primary px-5 pt-6 pb-10 rounded-b-3xl shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-primary-foreground hover:bg-white/20 transition-all mr-1">
-              <Package size={18} />
-            </button>
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-white/20 backdrop-blur-md flex items-center justify-center text-white">
                 <Utensils size={18} className="text-white" />
               </div>
               <div>
                 <h1 className="text-lg font-bold text-primary-foreground tracking-tight">SafeBite</h1>
-                <p className="text-[9px] uppercase font-bold text-primary-foreground/60 tracking-widest">Volunteer</p>
+                {ngoName && (
+                  <p className="text-[9px] uppercase font-bold text-primary-foreground/60 tracking-widest flex items-center gap-1.5 mt-0.5">
+                    {ngoName}
+                  </p>
+                )}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => { fetchData(); toast.success("Refreshed! 🔄"); }} className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-primary-foreground hover:bg-white/20 transition-all">
-              <Eye size={18} />
-            </button>
             <button onClick={() => navigate("/notifications")} className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-primary-foreground relative hover:bg-white/20 transition-all">
               <Bell size={18} />
               {unreadNotifications > 0 && (
@@ -236,30 +282,27 @@ const VolunteerDashboard = () => {
                 </span>
               )}
             </button>
-            <button 
-              onClick={handleLogout}
-              className="w-9 h-9 rounded-full bg-destructive/20 backdrop-blur-md border border-destructive/20 flex items-center justify-center text-white hover:bg-destructive transition-all shadow-lg"
-              title="Sign Out"
-            >
-              <LogOut size={16} />
-            </button>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
           {[
-            { value: stats.done.toString(), label: "Pickups Done" },
-            { value: stats.rating, label: "Rating" },
-            { value: stats.active.toString(), label: "Active" },
+            { value: stats.done.toString(), label: "Pickups Done", desc: "Total number of food pickups you have successfully completed." },
+            { value: stats.rating, label: "Rating", desc: "Average rating given to you by Donors and NGOs for your completed pickups." },
+            { value: stats.active.toString(), label: "Active", desc: "Your currently assigned and ongoing food pickups." },
           ].map((stat) => (
-            <div key={stat.label} className="bg-primary-foreground/10 backdrop-blur rounded-xl p-3 text-center">
+            <button 
+              key={stat.label} 
+              onClick={() => setActivePopup({ title: stat.label, desc: stat.desc, value: stat.value })}
+              className="bg-primary-foreground/10 backdrop-blur rounded-xl p-3 text-center transition-transform active:scale-95 hover:bg-primary-foreground/20 cursor-pointer focus:outline-none"
+            >
               <p className="text-2xl font-bold text-primary-foreground">{stat.value}</p>
               <p className="text-[10px] text-primary-foreground/70">{stat.label}</p>
-            </div>
+            </button>
           ))}
         </div>
       </div>
 
-      <div className="page-padding -mt-4 relative z-10">
+      <div className="page-padding mt-2 relative z-10">
         {loading ? (
           <div className="flex flex-col gap-3">
             {[1, 2, 3].map(i => (
@@ -342,6 +385,38 @@ const VolunteerDashboard = () => {
           </>
         )}
       </div>
+
+      {/* Info Popup */}
+      {activePopup && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 transition-all duration-200" onClick={() => setActivePopup(null)}>
+          <div className="bg-background rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl scale-100 p-6 relative border border-border" onClick={(e) => e.stopPropagation()}>
+            <button 
+              onClick={() => setActivePopup(null)}
+              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors"
+            >
+              <X size={16} className="text-foreground" />
+            </button>
+            <div className="text-center mb-2">
+              <span className="inline-block px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold uppercase tracking-wider mb-4">
+                {activePopup.title}
+              </span>
+              <div className="text-4xl font-black text-foreground mb-4">
+                {activePopup.value}
+              </div>
+              <p className="text-sm font-medium text-muted-foreground leading-relaxed">
+                {activePopup.desc}
+              </p>
+            </div>
+            <button 
+              onClick={() => setActivePopup(null)}
+              className="w-full mt-6 py-3 rounded-xl gradient-primary text-primary-foreground font-bold active:scale-[0.98] transition-all"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       <BottomNav items={volunteerNav} />
     </div>
   );

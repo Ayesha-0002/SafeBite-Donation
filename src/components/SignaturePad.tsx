@@ -31,7 +31,7 @@ const SignaturePad = ({ onSave, onClear }: SignaturePadProps) => {
     }
 
     try {
-      const base64 = sigRef.current.getTrimmedCanvas().toDataURL("image/png");
+      const base64 = sigRef.current.getCanvas().toDataURL("image/png");
       console.log("Signature captured successfully");
       onSave(base64);
       // We don't need a success toast here because the parent will show one

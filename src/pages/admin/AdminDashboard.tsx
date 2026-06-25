@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend } from "recharts";
 import { 
-  Shield, Users, AlertTriangle, CheckCircle, XCircle, Bell, LayoutDashboard, Sparkles, UserCog, LogOut, Loader2, Package, Search, Star, FileText, TrendingUp, MapPin, Calendar, Utensils, Navigation, Clock, Eye,
+  Shield, Users, AlertTriangle, CheckCircle, XCircle, Bell, LayoutDashboard, Sparkles, UserCog, LogOut, Loader2, Package, Search, Star, FileText, TrendingUp, MapPin, Calendar, Utensils, Navigation, Clock, RefreshCcw,
   MessageCircle, Phone, Activity, ChevronRight, PieChart as PieChartIcon
 } from "lucide-react";
 import logo from "@/assets/rizq-logo.png";
@@ -12,10 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { format, isValid } from "date-fns";
 import React from "react";
 import LeafletMap from "@/components/LeafletMap";
+import { ContactVerification } from "@/components/ContactVerification";
 
 import { useAuth } from "@/context/AuthContext";
 
@@ -104,6 +105,13 @@ const AdminDashboard = () => {
                 {item.label}
               </button>
             ))}
+            <button
+              onClick={() => navigate("/admin/settings")}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-white/60 hover:text-white hover:bg-white/5 transition-all mt-auto"
+            >
+              <UserCog size={18} />
+              Personal Settings
+            </button>
           </nav>
           <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white/50 hover:text-white transition-colors">
             <LogOut size={18} /> Log Out
@@ -777,7 +785,7 @@ const DonorAnalyticsTab = () => {
             <TableHeader className="bg-primary/5">
               <TableRow>
                 <TableHead className="text-[10px] font-black uppercase tracking-widest py-4">Donor Name</TableHead>
-                <TableHead className="text-[10px] font-black uppercase tracking-widest py-4">Email</TableHead>
+                <TableHead className="text-[10px] font-black uppercase tracking-widest py-4">Phone Number</TableHead>
                 <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Delivered</TableHead>
                 <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Pending</TableHead>
                 <TableHead className="text-center text-[10px] font-black uppercase tracking-widest py-4">Total</TableHead>
@@ -825,7 +833,7 @@ const DonorAnalyticsTab = () => {
                 </TableRow>
               ))}
               {(!loading || donorData.length > 0) && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-20 font-bold uppercase tracking-widest text-xs opacity-50">No donors found</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-20 font-bold uppercase tracking-widest text-xs opacity-50">No donors found</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -835,6 +843,10 @@ const DonorAnalyticsTab = () => {
       {/* Donation Details Dialog */}
       <Dialog open={!!detailsDialog} onOpenChange={() => setDetailsDialog(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto rounded-[2rem] p-0 border-none bg-background shadow-2xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Donation Details for {detailsDialog?.name}</DialogTitle>
+            <DialogDescription>View detailed information about donations posted by {detailsDialog?.name}</DialogDescription>
+          </DialogHeader>
           {detailsDialog && (
             <div className="p-6 sm:p-10 flex flex-col gap-8">
               <div className="flex items-center justify-between">
@@ -890,7 +902,7 @@ const DonorAnalyticsTab = () => {
                   <Package size={16} className="text-primary" /> Donation History
                 </h4>
                 <div className="space-y-3">
-                  {detailsDialog.donations.map((dn: any) => (
+                  {(detailsDialog.donations || []).map((dn: any) => (
                     <div key={dn.id} className="p-4 rounded-2xl bg-white border border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-xl bg-primary/5 flex items-center justify-center text-primary shadow-sm">
@@ -1286,6 +1298,10 @@ const RiderAnalyticsTab = () => {
 
       <Dialog open={!!selectedRider} onOpenChange={() => setSelectedRider(null)}>
         <DialogContent className="max-w-md rounded-[2rem] p-0 overflow-hidden border-none shadow-2xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Volunteer Report: {selectedRider?.name}</DialogTitle>
+            <DialogDescription>Detailed performance and activity report for volunteer {selectedRider?.name}</DialogDescription>
+          </DialogHeader>
           {selectedRider && (
             <div className="animate-in fade-in zoom-in duration-300">
               <div className="gradient-primary p-6 text-primary-foreground relative">
@@ -2032,13 +2048,50 @@ const RegistrationRequestsTab = () => {
   useEffect(() => { fetchRequests(); }, []);
 
   const handleAction = async (id: string, action: "approved" | "rejected") => {
-    const { error } = await supabase
-      .from("registration_requests")
-      .update({ status: action, reviewed_by: (await supabase.auth.getUser()).data.user?.id })
-      .eq("id", id);
-    if (error) { toast.error("Failed to update"); return; }
-    toast.success(action === "approved" ? "User approved! Role assigned automatically." : "Request rejected.");
-    fetchRequests();
+    try {
+      const { data: reqData, error: fetchErr } = await supabase
+        .from("registration_requests")
+        .select("*")
+        .eq("id", id)
+        .single();
+      
+      if (fetchErr || !reqData) throw new Error("Could not find request data");
+
+      const { error: updateErr } = await supabase
+        .from("registration_requests")
+        .update({ 
+          status: action, 
+          reviewed_by: (await supabase.auth.getUser()).data.user?.id 
+        })
+        .eq("id", id);
+      
+      if (updateErr) throw updateErr;
+
+      const userId = reqData.id;
+      if (action === "approved" && userId) {
+        // Actually grant the role in profiles and user_roles
+        await Promise.all([
+          supabase.from("profiles").update({ 
+            role: reqData.requested_role,
+            is_approved: true
+          }).eq("id", userId),
+          
+          supabase.from("user_roles").upsert({ 
+            user_id: userId, 
+            role: reqData.requested_role 
+          })
+        ]);
+      } else if (action === "rejected" && userId) {
+        // Since there is no status column in profiles, we do not update a non-existent column
+        // We can optionally change their role or leave it
+      }
+
+      toast.success(action === "approved" ? "User approved! Role assigned." : "Request rejected.");
+      fetchRequests();
+    } catch (err: any) {
+      console.error("handleAction error:", err);
+      toast.error(err.message || "Failed to update registration");
+    }
   };
 
   return (
@@ -2223,7 +2276,7 @@ const RiderTrackerTab = () => {
             onClick={fetchRiders}
             className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground hover:text-primary transition-all active:scale-95"
           >
-            <Eye size={18} />
+            <RefreshCcw size={18} />
           </button>
         </div>
       </div>
@@ -2343,9 +2396,7 @@ const RiderTrackerTab = () => {
                   <MapPin size={12} />
                   View Map
                 </button>
-                <button className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center hover:bg-primary/20 transition-all">
-                   <Eye size={16} />
-                </button>
+
               </div>
             </div>
           ))
@@ -2641,6 +2692,10 @@ const UserManagementTab = () => {
 
       <Dialog open={!!selectedUser} onOpenChange={() => setSelectedUser(null)}>
         <DialogContent className="max-w-md rounded-[2rem] p-0 overflow-hidden border-none shadow-2xl animate-scale-in">
+          <DialogHeader className="sr-only">
+            <DialogTitle>User Management: {selectedUser?.full_name}</DialogTitle>
+            <DialogDescription>Manage account status and view details for {selectedUser?.full_name}</DialogDescription>
+          </DialogHeader>
           {selectedUser && (
             <div>
               <div className={`p-8 text-white relative ${selectedUser.is_blocked ? "bg-destructive" : "gradient-primary"}`}>

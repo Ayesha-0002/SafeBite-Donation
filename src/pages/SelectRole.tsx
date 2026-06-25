@@ -43,7 +43,7 @@ const allRoles = [
 const SelectRole = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading, signOut } = useAuth();
   const [loading, setLoading] = useState(!profile);
   const [approvedRoles, setApprovedRoles] = useState<string[]>(profile?.user_roles?.map((r: any) => r.role) || []);
 
@@ -59,8 +59,11 @@ const SelectRole = () => {
       // Use roles from profile context if available
       let userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
 
-      // Fallback: If user_roles is still empty in context, maybe it was just created?
-      // But we should trust the AuthContext's profile for the most part.
+      // If user is Admin, bypass role selection entirely for security/clarity
+      if (userRoles.includes("admin")) {
+        navigate("/admin", { replace: true });
+        return;
+      }
       
       if (userRoles.length === 0 && user.user_metadata?.role) {
         const metadataRole = user.user_metadata.role;
@@ -84,8 +87,10 @@ const SelectRole = () => {
         })().catch(err => console.warn("Phone sync failed", err));
       }
 
-      if (userRoles.includes("admin")) {
-        navigate("/admin", { replace: true });
+      // If user has multiple roles, allow them to choose (Admin handled above)
+      if (userRoles.length > 1) {
+        setApprovedRoles(userRoles);
+        setLoading(false);
         return;
       }
 
@@ -104,9 +109,11 @@ const SelectRole = () => {
     checkRoles();
   }, [user, profile, authLoading, navigate]);
 
-
   const handleLogout = async () => {
-    await signOut();
+    if (signOut) {
+      await signOut();
+      navigate("/", { replace: true });
+    }
   };
 
   if (loading || authLoading) {

@@ -108,29 +108,50 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const fetchProfile = async (uid: string, authUser?: User | null) => {
-    if (lastFetchedUid.current === uid && profile) {
-      console.log("fetchProfile: Profile already loaded, skipping network fetch.");
+    // If we already loaded a profile that is fully active, we can skip fetching to save bandwidth.
+    // However, if the profile lacks approval or is still "user/volunteer" in transition, we MUST fetch it from DB.
+    if (lastFetchedUid.current === uid && profile && (profile.is_approved === true || profile.role !== "volunteer")) {
+      console.log("fetchProfile: Profile already loaded and approved, skipping network fetch.");
       return profile;
     }
     lastFetchedUid.current = uid;
     try {
-      // Speed up by fetching profile and roles in parallel with timing safety
+      // Speed up by fetching profile and roles in parallel with timing safety (6 seconds timeout)
       const fetchPromise = Promise.all([
         supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", uid)
       ]);
 
-      const [profileRes, rolesRes] = await promiseWithTimeout(
+      const TIMEOUT_SENTINEL = "TIMEOUT_EXCEEDED";
+      const result = await Promise.race([
         fetchPromise,
-        1000,
-        [{ data: null, error: null }, { data: [], error: null }] as any
-      );
+        new Promise<any>((resolve) => setTimeout(() => resolve(TIMEOUT_SENTINEL), 6000))
+      ]);
+
+      let profileRes = { data: null, error: null };
+      let rolesRes = { data: [], error: null };
+      let isTimeout = false;
+
+      if (result === TIMEOUT_SENTINEL) {
+        isTimeout = true;
+        console.warn("fetchProfile: Database query timed out after 6 seconds.");
+      } else {
+        const [pRes, rRes] = result;
+        profileRes = pRes || { data: null, error: null };
+        rolesRes = rRes || { data: [], error: null };
+      }
       
-      const profile = profileRes.data;
+      const dbProfile = profileRes.data;
       let roles = rolesRes.data || [];
 
       if (profileRes.error) console.error("Profile fetch error:", profileRes.error);
       if (rolesRes.error) console.error("Roles fetch error:", rolesRes.error);
+
+      // If we timed out or got an error, let's keep the existing state instead of deleting roles
+      if (isTimeout && profile) {
+        console.log("fetchProfile: Retaining existing cached profile due to backend timeout.");
+        return profile;
+      }
 
       // Use the passed in user or fallback to authContext's state user (Avoid supabase.auth.getUser() deadlock)
       const currentUser = authUser || user;
@@ -139,7 +160,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const metaName = currentUser?.user_metadata?.full_name;
 
       // Ensure role is in user_roles table
-      if (roles.length === 0 && metaRole) {
+      if (!isTimeout && roles.length === 0 && metaRole) {
         console.log("AuthContext: user_roles is empty, syncing role from metadata:", metaRole);
         try {
           const { data: insertedRole, error: insertError } = await supabase
@@ -158,51 +179,116 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
 
-      // Automatically sync missing phone and name from auth metadata to the public profiles table in Supabase
-      let finalSyncedProfile = profile || { id: uid };
-      const dbPhone = profile?.phone;
-      const dbName = profile?.full_name;
-      const needsPhoneSync = profile && !dbPhone && metaPhone;
-      const needsNameSync = profile && !dbName && metaName;
+      // Automatically sync name, phone, and email from auth metadata/user to the public profiles table in Supabase
+      let finalSyncedProfile = dbProfile;
+      const dbPhone = dbProfile?.phone;
+      const dbName = dbProfile?.full_name;
+      const dbEmail = dbProfile?.email;
+      
+      const metaEmail = currentUser?.email;
+      const finalName = dbName || metaName || "User";
+      const finalPhone = dbPhone || metaPhone || "";
+      const finalEmail = dbEmail || metaEmail || "";
 
-      if (uid && (needsPhoneSync || needsNameSync)) {
-        console.log("AuthContext: Auto-syncing metadata to public profiles table...", { metaPhone, metaName });
+      const needsProfileCreation = !isTimeout && !dbProfile && uid;
+      const needsSync = !isTimeout && dbProfile && (dbName !== finalName || dbPhone !== finalPhone || dbEmail !== finalEmail);
+
+      if (uid && needsProfileCreation) {
+        console.log("AuthContext: Profile row missing, creating with metadata/auth info...", { finalName, finalPhone, finalEmail });
         try {
-          const updates: any = {};
-          if (needsPhoneSync) updates.phone = metaPhone;
-          if (needsNameSync) updates.full_name = metaName;
-
-          const { data: upData, error: upError } = await supabase
+          const { data: insertData, error: insertErr } = await supabase
             .from("profiles")
-            .update(updates)
+            .upsert({
+              id: uid,
+              full_name: finalName,
+              phone: finalPhone,
+              email: finalEmail
+            })
+            .select("*")
+            .maybeSingle();
+
+          if (!insertErr && insertData) {
+            finalSyncedProfile = insertData;
+          } else {
+            console.warn("AuthContext profile insert error:", insertErr);
+            finalSyncedProfile = {
+              id: uid,
+              full_name: finalName,
+              phone: finalPhone,
+              email: finalEmail
+            };
+          }
+        } catch (insertCatchErr) {
+          console.warn("AuthContext profiles insert failed:", insertCatchErr);
+          finalSyncedProfile = {
+            id: uid,
+            full_name: finalName,
+            phone: finalPhone,
+            email: finalEmail
+          };
+        }
+      } else if (uid && needsSync) {
+        console.log("AuthContext: Profile exists but has missing/stale values, syncing...", { finalName, finalPhone, finalEmail });
+        try {
+          const { data: updateData, error: updateErr } = await supabase
+            .from("profiles")
+            .update({
+              full_name: finalName,
+              phone: finalPhone,
+              email: finalEmail
+            })
             .eq("id", uid)
             .select("*")
             .maybeSingle();
 
-          if (!upError && upData) {
-            finalSyncedProfile = upData;
+          if (!updateErr && updateData) {
+            finalSyncedProfile = updateData;
           } else {
-            console.warn("AuthContext profile sync returned error or null:", upError);
+            console.warn("AuthContext profile update error:", updateErr);
+            finalSyncedProfile = {
+              ...dbProfile,
+              full_name: finalName,
+              phone: finalPhone,
+              email: finalEmail
+            };
           }
-        } catch (syncErr) {
-          console.warn("AuthContext profiles table update failed:", syncErr);
+        } catch (updateCatchErr) {
+          console.warn("AuthContext profiles update failed:", updateCatchErr);
+          finalSyncedProfile = {
+            ...dbProfile,
+            full_name: finalName,
+            phone: finalPhone,
+            email: finalEmail
+          };
         }
+      }
+
+      if (!finalSyncedProfile) {
+        finalSyncedProfile = {
+          id: uid,
+          full_name: finalName,
+          phone: finalPhone,
+          email: finalEmail
+        };
       }
       
       const finalProfile = { 
         ...finalSyncedProfile, 
         phone: finalSyncedProfile?.phone || metaPhone || null,
+        email: finalSyncedProfile?.email || currentUser?.email || null,
         user_roles: roles || [] 
       };
       
       // Update cache
-      localStorage.setItem("sb_profile_cache", JSON.stringify(finalProfile));
-      
-      // Cache role for faster navigation in App.tsx
-      if (roles && roles.length > 0) {
-        localStorage.setItem(`sb_role_${uid}`, roles[0].role);
-      } else if (profile?.role) {
-        localStorage.setItem(`sb_role_${uid}`, profile.role);
+      if (!isTimeout) {
+        localStorage.setItem("sb_profile_cache", JSON.stringify(finalProfile));
+        
+        // Cache role for faster navigation in App.tsx
+        if (roles && roles.length > 0) {
+          localStorage.setItem(`sb_role_${uid}`, roles[0].role);
+        } else if (finalSyncedProfile?.role) {
+          localStorage.setItem(`sb_role_${uid}`, finalSyncedProfile.role);
+        }
       }
 
       return finalProfile;
@@ -226,7 +312,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let active = true;
     const timeout = setTimeout(() => {
       if (active) setLoading(false);
-    }, 1500);
+    }, 200);
 
     const initAuth = async () => {
       const url = import.meta.env.VITE_SUPABASE_URL;
@@ -242,7 +328,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         const sessionRes = await promiseWithTimeout(
           supabase.auth.getSession(),
-          800,
+          200,
           { data: { session: null }, error: null } as any
         );
         if (!active) return;
@@ -284,6 +370,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         clearTimeout(timeout);
         
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+            if ((window as any).__safebite_signing_up) {
+                console.log("[AuthContext] Skipping onAuthStateChange during active signup flow");
+                return;
+            }
+
             // Bypass duplicate updates & loading states for direct login flow in Auth.tsx
             if ((window as any).__safebite_signing_in) {
                 console.log("[AuthContext] Skipping onAuthStateChange duplicate fetch during active login flow");

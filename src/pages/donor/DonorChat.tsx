@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, PlusCircle, Clock, MessageCircle, User, ArrowLeft } from "lucide-react";
+import { Home, PlusCircle, Clock, MessageCircle, User, ArrowLeft, Scan } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import ChatConversationList from "@/components/ChatConversationList";
 import ChatThread from "@/components/ChatThread";
@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 
 const donorNav = [
   { icon: Home, label: "Home", path: "/donor" },
-  { icon: PlusCircle, label: "Donate", path: "/donor/post" },
+  { icon: Scan, label: "Donate", path: "/donor/post" },
   { icon: Clock, label: "History", path: "/donor/history" },
   { icon: User, label: "Profile", path: "/donor/profile" },
 ];

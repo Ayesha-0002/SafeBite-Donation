@@ -3,63 +3,29 @@ import { ArrowLeft, Save, Loader2, User, Phone, Mail } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 
 const DonorSettings = () => {
   const navigate = useNavigate();
-  const [profile, setProfile] = useState(() => {
-    try {
-      const cached = localStorage.getItem("sb_profile_cache");
-      if (cached) {
-        const p = JSON.parse(cached);
-        return {
-          full_name: p.full_name || "",
-          phone: p.phone || "",
-          email: p.email || "",
-        };
-      }
-    } catch (error) {
-      console.error("Cache parse error:", error);
-    }
-    return { full_name: "", phone: "", email: "" };
+  const { user, profile: authProfile, refreshProfile } = useAuth();
+  const [profile, setProfile] = useState({
+    full_name: authProfile?.full_name || "",
+    phone: authProfile?.phone || "",
+    email: authProfile?.email || user?.email || "",
   });
-  const [loading, setLoading] = useState(!profile.full_name);
+  const [loading, setLoading] = useState(!authProfile);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1500);
-    const fetchProfile = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          navigate("/");
-          return;
-        }
-
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .maybeSingle();
-
-        if (data) {
-          const newProfile = {
-            full_name: data.full_name || "",
-            phone: data.phone || "",
-            email: user.email || "",
-          };
-          setProfile(newProfile);
-          localStorage.setItem("sb_profile_cache", JSON.stringify({ ...data, email: user.email }));
-        }
-      } catch (err) {
-        console.error("fetchProfile error:", err);
-      } finally {
-        setLoading(false);
-        clearTimeout(timer);
-      }
-    };
-    fetchProfile();
-    return () => clearTimeout(timer);
-  }, [navigate]);
+    if (authProfile) {
+      setProfile({
+        full_name: authProfile.full_name || "",
+        phone: authProfile.phone || "",
+        email: authProfile.email || user?.email || "",
+      });
+      setLoading(false);
+    }
+  }, [authProfile, user]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,6 +51,7 @@ const DonorSettings = () => {
         localStorage.setItem("sb_profile_cache", JSON.stringify({ ...p, full_name: profile.full_name, phone: profile.phone }));
       }
       
+      await refreshProfile();
       toast.success("Profile updated successfully");
       navigate("/donor/profile");
     } catch (error: any) {

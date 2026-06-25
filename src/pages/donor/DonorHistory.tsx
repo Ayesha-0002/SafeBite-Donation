@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, PlusCircle, Clock, MessageCircle, User, Package, Loader2, ArrowLeft, Star } from "lucide-react";
+import { Home, PlusCircle, Clock, MessageCircle, User, Package, Loader2, ArrowLeft, Star, Scan } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { supabase } from "@/lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 
 const donorNav = [
   { icon: Home, label: "Home", path: "/donor" },
-  { icon: PlusCircle, label: "Donate", path: "/donor/post" },
+  { icon: Scan, label: "Donate", path: "/donor/post" },
   { icon: Clock, label: "History", path: "/donor/history" },
   { icon: User, label: "Profile", path: "/donor/profile" },
 ];
@@ -21,6 +21,7 @@ const DonorHistory = () => {
   
   // Real-time volunteer & rating tracking states
   const [volunteers, setVolunteers] = useState<any[]>([]);
+  const [ngos, setNgos] = useState<any[]>([]);
   const [myRatings, setMyRatings] = useState<any[]>([]);
   const [ratingDialog, setRatingDialog] = useState<{ volunteerId: string; volunteerName: string; donationId: string } | null>(null);
   const [ratingValue, setRatingValue] = useState(0);
@@ -52,7 +53,17 @@ const DonorHistory = () => {
         setVolunteers(profiles || []);
       }
 
-      // 3. Fetch ratings submitted by this donor
+      // 3. Fetch NGO profiles who verified donations
+      const ngoIds = [...new Set(donationsList.map(d => d.ngo_verified_by))].filter(Boolean);
+      if (ngoIds.length > 0) {
+        const { data: ngoProfiles } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", ngoIds);
+        setNgos(ngoProfiles || []);
+      }
+
+      // 4. Fetch ratings submitted by this donor
       const { data: ratingsData } = await supabase
         .from("donation_ratings")
         .select("*")
@@ -150,7 +161,9 @@ const DonorHistory = () => {
             const badge = getStatusBadge(d);
             const imgUrl = getImageUrl(d.image_url);
             const volunteer = volunteers.find(v => v.id === d.assigned_volunteer_id);
-            const rating = myRatings.find(r => r.donation_id === d.id);
+            const verifiedNgo = ngos.find(n => n.id === d.ngo_verified_by);
+            const riderRating = volunteer ? myRatings.find(r => r.donation_id === d.id && r.rated_user_id === volunteer.id) : null;
+            const ngoRating = d.ngo_verified_by ? myRatings.find(r => r.donation_id === d.id && r.rated_user_id === d.ngo_verified_by) : null;
 
             return (
               <div key={d.id} className="food-card flex flex-col gap-3 p-4">
@@ -182,34 +195,70 @@ const DonorHistory = () => {
                   <span className={badge.cls}>{badge.label}</span>
                 </div>
 
-                {d.status === "delivered" && volunteer && (
-                  <div className="mt-2 pt-2 border-t border-border/40 flex items-center justify-between">
-                    <div className="flex flex-col">
-                      <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest leading-none mb-1">Delivered By</p>
-                      <p className="text-xs font-bold text-foreground">{volunteer.full_name}</p>
-                    </div>
-                    
-                    {rating ? (
-                      <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded-lg border border-yellow-100">
-                        <Star size={11} className="text-yellow-500 fill-yellow-500" />
-                        <span className="text-[10px] font-black text-yellow-700">{rating.rating}.0 (Rated)</span>
+                {d.status === "delivered" && (volunteer || verifiedNgo) && (
+                  <div className="mt-2 pt-2 border-t border-border/40 space-y-3">
+                    {volunteer && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest leading-none mb-1">Delivered By (Rider)</p>
+                          <p className="text-xs font-bold text-foreground">{volunteer.full_name}</p>
+                        </div>
+                        
+                        {riderRating ? (
+                          <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded-lg border border-yellow-100">
+                            <Star size={11} className="text-yellow-500 fill-yellow-500" />
+                            <span className="text-[10px] font-black text-yellow-700">{riderRating.rating}.0 (Rated)</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRatingDialog({
+                                volunteerId: volunteer.id,
+                                volunteerName: volunteer.full_name,
+                                donationId: d.id
+                              });
+                              setRatingValue(0);
+                              setRatingComment("");
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary hover:text-white text-xs font-bold active:scale-[0.97] transition-all cursor-pointer"
+                          >
+                            <Star size={11} /> Rate Rider
+                          </button>
+                        )}
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRatingDialog({
-                            volunteerId: volunteer.id,
-                            volunteerName: volunteer.full_name,
-                            donationId: d.id
-                          });
-                          setRatingValue(0);
-                          setRatingComment("");
-                        }}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary hover:text-white text-xs font-bold active:scale-[0.97] transition-all cursor-pointer"
-                      >
-                        <Star size={11} /> Rate Rider
-                      </button>
+                    )}
+
+                    {verifiedNgo && (
+                      <div className="flex items-center justify-between pt-1 border-t border-border/20">
+                        <div className="flex flex-col">
+                          <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest leading-none mb-1">Processed By (NGO)</p>
+                          <p className="text-xs font-bold text-foreground">{verifiedNgo.full_name}</p>
+                        </div>
+                        
+                        {ngoRating ? (
+                          <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded-lg border border-yellow-100">
+                            <Star size={11} className="text-yellow-500 fill-yellow-500" />
+                            <span className="text-[10px] font-black text-yellow-700">{ngoRating.rating}.0 (Rated)</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRatingDialog({
+                                volunteerId: verifiedNgo.id,
+                                volunteerName: verifiedNgo.full_name,
+                                donationId: d.id
+                              });
+                              setRatingValue(0);
+                              setRatingComment("");
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-600 hover:bg-amber-500 hover:text-white text-xs font-bold active:scale-[0.97] transition-all cursor-pointer"
+                          >
+                            <Star size={11} /> Rate NGO
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}

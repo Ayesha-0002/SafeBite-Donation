@@ -8,30 +8,32 @@ import ProtectedRoute from "./components/ProtectedRoute";
 
 import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { InstallPrompt } from "./components/InstallPrompt";
 
-// Lazy-loaded page components for route-level code splitting
-const Auth = lazy(() => import("./pages/Auth"));
-const SelectRole = lazy(() => import("./pages/SelectRole"));
-const DonorDashboard = lazy(() => import("./pages/donor/DonorDashboard"));
-const PostFood = lazy(() => import("./pages/donor/PostFood"));
-const DonorHistory = lazy(() => import("./pages/donor/DonorHistory"));
-const DonorChat = lazy(() => import("./pages/donor/DonorChat"));
-const DonorProfile = lazy(() => import("./pages/donor/DonorProfile"));
-const DonorSettings = lazy(() => import("./pages/donor/DonorSettings"));
-const NgoDashboard = lazy(() => import("./pages/ngo/NgoDashboard"));
-const NgoChat = lazy(() => import("./pages/ngo/NgoChat"));
-const NgoTrackRider = lazy(() => import("./pages/ngo/NgoTrackRider"));
-const NgoProfile = lazy(() => import("./pages/ngo/NgoProfile"));
-const NgoSettings = lazy(() => import("./pages/ngo/NgoSettings"));
-const VolunteerDashboard = lazy(() => import("./pages/volunteer/VolunteerDashboard"));
-const LiveTracking = lazy(() => import("./pages/volunteer/LiveTracking"));
-const VolunteerPickups = lazy(() => import("./pages/volunteer/VolunteerPickups"));
-const VolunteerProfile = lazy(() => import("./pages/volunteer/VolunteerProfile"));
-const VolunteerSettings = lazy(() => import("./pages/volunteer/VolunteerSettings"));
-const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
-const Blocked = lazy(() => import("./pages/Blocked"));
-const Notifications = lazy(() => import("./pages/Notifications"));
-const NotFound = lazy(() => import("./pages/NotFound"));
+import Auth from "./pages/Auth";
+import SelectRole from "./pages/SelectRole";
+import DonorDashboard from "./pages/donor/DonorDashboard";
+import PostFood from "./pages/donor/PostFood";
+import DonorHistory from "./pages/donor/DonorHistory";
+import DonorChat from "./pages/donor/DonorChat";
+import DonorProfile from "./pages/donor/DonorProfile";
+import DonorSettings from "./pages/donor/DonorSettings";
+import NgoDashboard from "./pages/ngo/NgoDashboard";
+import NgoChat from "./pages/ngo/NgoChat";
+import NgoTrackRider from "./pages/ngo/NgoTrackRider";
+import NgoProfile from "./pages/ngo/NgoProfile";
+import NgoSettings from "./pages/ngo/NgoSettings";
+import VolunteerDashboard from "./pages/volunteer/VolunteerDashboard";
+import LiveTracking from "./pages/volunteer/LiveTracking";
+import VolunteerPickups from "./pages/volunteer/VolunteerPickups";
+import VolunteerProfile from "./pages/volunteer/VolunteerProfile";
+import VolunteerSettings from "./pages/volunteer/VolunteerSettings";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminSettings from "./pages/admin/AdminSettings";
+import Blocked from "./pages/Blocked";
+import PendingApproval from "./pages/PendingApproval";
+import Notifications from "./pages/Notifications";
+import NotFound from "./pages/NotFound";
 
 const PageLoader = () => (
   <div className="mobile-container min-h-screen flex items-center justify-center bg-background">
@@ -128,13 +130,25 @@ const AuthGuard = ({ children }: { children: React.ReactNode }) => {
       let target = selectRolePage;
       if (hasAnyRole) {
         const allRoles = [...userRoles, profile?.role, user.user_metadata?.role].filter(Boolean);
-        if (allRoles.includes("admin")) target = "/admin";
-        else if (allRoles.includes("donor")) target = "/donor";
-        else if (allRoles.includes("ngo")) target = "/ngo";
-        else if (allRoles.includes("volunteer")) target = "/volunteer";
+        const uniqueRoles = [...new Set(allRoles)];
+        
+        // Admin priority: If user has 'admin' role, force them to admin and don't allow role selection
+        if (uniqueRoles.includes("admin")) {
+          if (pathname.includes("/donor") || pathname.includes("/ngo") || pathname.includes("/volunteer")) {
+            console.log("[AuthGuard] Admin access restriction triggered");
+            // Note: navigate will handle the redirect, this toast provides the "error" feedback the user requested
+          }
+          target = "/admin";
+        } else if (uniqueRoles.length > 1 && !isSelectRolePage) {
+          target = selectRolePage;
+        } else if (uniqueRoles.length === 1) {
+          if (uniqueRoles[0] === "donor") target = "/donor";
+          else if (uniqueRoles[0] === "ngo") target = "/ngo";
+          else if (uniqueRoles[0] === "volunteer") target = "/volunteer";
+        }
       }
 
-      if (pathname !== target) {
+      if (pathname === "/" || pathname === "/login" || pathname === "/register") {
         console.log(`[AuthGuard] Redirecting authenticated user to ${target}`);
         navigate(target, { replace: true });
       }
@@ -145,7 +159,7 @@ const AuthGuard = ({ children }: { children: React.ReactNode }) => {
   const isAuthPage = ["/", "/login", "/register", "/select-role"].includes(pathname);
   const isDashboard = ["/donor", "/ngo", "/volunteer", "/admin"].some(path => pathname.startsWith(path));
   
-  const showLoader = loading && !profile && !user; 
+  const showLoader = false;
 
   if (error) {
     return (
@@ -174,62 +188,44 @@ const AuthGuard = ({ children }: { children: React.ReactNode }) => {
 
 const AuthGuardWrapper = () => (
   <AuthGuard>
-    <Suspense fallback={
-      <div style={{
-        display: "flex",
-        justifyContent: "center", 
-        alignItems: "center",
-        height: "100vh",
-        background: "#fff"
-      }}>
-        <div style={{
-          width: "40px",
-          height: "40px", 
-          border: "4px solid #f3f3f3",
-          borderTop: "4px solid #22c55e",
-          borderRadius: "50%",
-          animation: "spin 1s linear infinite"
-        }}/>
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-      </div>
-    }>
-      <Routes>
-        <Route path="/" element={<Auth />} />
-        <Route path="/login" element={<Auth />} />
-        <Route path="/register" element={<Auth />} />
-        <Route path="/select-role" element={<SelectRole />} />
-        <Route path="/blocked" element={<Blocked />} />
-        <Route path="/notifications" element={<Notifications />} />
-        
-        {/* Donor Routes */}
-        <Route path="/donor" element={<ProtectedRoute requiredRole="donor"><DonorDashboard /></ProtectedRoute>} />
-        <Route path="/donor/post" element={<ProtectedRoute requiredRole="donor"><PostFood /></ProtectedRoute>} />
-        <Route path="/donor/history" element={<ProtectedRoute requiredRole="donor"><DonorHistory /></ProtectedRoute>} />
-        <Route path="/donor/chat" element={<ProtectedRoute requiredRole="donor"><DonorChat /></ProtectedRoute>} />
-        <Route path="/donor/profile" element={<ProtectedRoute requiredRole="donor"><DonorProfile /></ProtectedRoute>} />
-        <Route path="/donor/settings" element={<ProtectedRoute requiredRole="donor"><DonorSettings /></ProtectedRoute>} />
-        
-        {/* NGO / Organization Routes */}
-        <Route path="/ngo" element={<ProtectedRoute requiredRole="ngo"><NgoDashboard /></ProtectedRoute>} />
-        <Route path="/ngo/requests" element={<ProtectedRoute requiredRole="ngo"><NgoDashboard /></ProtectedRoute>} />
-        <Route path="/ngo/chat" element={<ProtectedRoute requiredRole="ngo"><NgoChat /></ProtectedRoute>} />
-        <Route path="/ngo/track" element={<ProtectedRoute requiredRole="ngo"><NgoTrackRider /></ProtectedRoute>} />
-        <Route path="/ngo/profile" element={<ProtectedRoute requiredRole="ngo"><NgoProfile /></ProtectedRoute>} />
-        <Route path="/ngo/settings" element={<ProtectedRoute requiredRole="ngo"><NgoSettings /></ProtectedRoute>} />
-        
-        {/* Volunteer / Rider Routes */}
-        <Route path="/volunteer" element={<ProtectedRoute requiredRole="volunteer"><VolunteerDashboard /></ProtectedRoute>} />
-        <Route path="/volunteer/tracking" element={<ProtectedRoute requiredRole="volunteer"><LiveTracking /></ProtectedRoute>} />
-        <Route path="/volunteer/pickups" element={<ProtectedRoute requiredRole="volunteer"><VolunteerPickups /></ProtectedRoute>} />
-        <Route path="/volunteer/profile" element={<ProtectedRoute requiredRole="volunteer"><VolunteerProfile /></ProtectedRoute>} />
-        <Route path="/volunteer/settings" element={<ProtectedRoute requiredRole="volunteer"><VolunteerSettings /></ProtectedRoute>} />
-        
-        {/* Admin Routes */}
-        <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminDashboard /></ProtectedRoute>} />
-        
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Suspense>
+    <Routes>
+      <Route path="/" element={<Auth />} />
+      <Route path="/login" element={<Auth />} />
+      <Route path="/register" element={<Auth />} />
+      <Route path="/select-role" element={<SelectRole />} />
+      <Route path="/blocked" element={<Blocked />} />
+      <Route path="/pending-approval" element={<PendingApproval />} />
+      <Route path="/notifications" element={<Notifications />} />
+      
+      {/* Donor Routes */}
+      <Route path="/donor" element={<ProtectedRoute requiredRole="donor"><DonorDashboard /></ProtectedRoute>} />
+      <Route path="/donor/post" element={<ProtectedRoute requiredRole="donor"><PostFood /></ProtectedRoute>} />
+      <Route path="/donor/history" element={<ProtectedRoute requiredRole="donor"><DonorHistory /></ProtectedRoute>} />
+      <Route path="/donor/chat" element={<ProtectedRoute requiredRole="donor"><DonorChat /></ProtectedRoute>} />
+      <Route path="/donor/profile" element={<ProtectedRoute requiredRole="donor"><DonorProfile /></ProtectedRoute>} />
+      <Route path="/donor/settings" element={<ProtectedRoute requiredRole="donor"><DonorSettings /></ProtectedRoute>} />
+      
+      {/* NGO / Organization Routes */}
+      <Route path="/ngo" element={<ProtectedRoute requiredRole="ngo"><NgoDashboard /></ProtectedRoute>} />
+      <Route path="/ngo/requests" element={<ProtectedRoute requiredRole="ngo"><NgoDashboard /></ProtectedRoute>} />
+      <Route path="/ngo/chat" element={<ProtectedRoute requiredRole="ngo"><NgoChat /></ProtectedRoute>} />
+      <Route path="/ngo/track" element={<ProtectedRoute requiredRole="ngo"><NgoTrackRider /></ProtectedRoute>} />
+      <Route path="/ngo/profile" element={<ProtectedRoute requiredRole="ngo"><NgoProfile /></ProtectedRoute>} />
+      <Route path="/ngo/settings" element={<ProtectedRoute requiredRole="ngo"><NgoSettings /></ProtectedRoute>} />
+      
+      {/* Volunteer / Rider Routes */}
+      <Route path="/volunteer" element={<ProtectedRoute requiredRole="volunteer"><VolunteerDashboard /></ProtectedRoute>} />
+      <Route path="/volunteer/tracking" element={<ProtectedRoute requiredRole="volunteer"><LiveTracking /></ProtectedRoute>} />
+      <Route path="/volunteer/pickups" element={<ProtectedRoute requiredRole="volunteer"><VolunteerPickups /></ProtectedRoute>} />
+      <Route path="/volunteer/profile" element={<ProtectedRoute requiredRole="volunteer"><VolunteerProfile /></ProtectedRoute>} />
+      <Route path="/volunteer/settings" element={<ProtectedRoute requiredRole="volunteer"><VolunteerSettings /></ProtectedRoute>} />
+      
+      {/* Admin Routes */}
+      <Route path="/admin" element={<ProtectedRoute requiredRole="admin"><AdminDashboard /></ProtectedRoute>} />
+      <Route path="/admin/settings" element={<ProtectedRoute requiredRole="admin"><AdminSettings /></ProtectedRoute>} />
+      
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   </AuthGuard>
 );
 
@@ -241,6 +237,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <AuthGuardWrapper />
+          <InstallPrompt />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

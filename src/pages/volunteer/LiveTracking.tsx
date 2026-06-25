@@ -2,12 +2,57 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ArrowLeft, Phone, MessageCircle, Camera, CheckCircle, Locate, Loader2, AlertTriangle, X, PenTool, User } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
+import { APIProvider, Map, AdvancedMarker, Pin, useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import LeafletMap from "@/components/LeafletMap";
+
+const API_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || "";
+
+function RouteDisplay({ origin, destination, setDistanceInfo }: {
+  origin: {lat: number, lng: number} | null;
+  destination: {lat: number, lng: number} | null;
+  setDistanceInfo?: (distance: number, minutes: number) => void;
+}) {
+  const map = useMap();
+  const routesLib = useMapsLibrary('routes');
+  const [directionsService, setDirectionsService] = useState<google.maps.DirectionsService>();
+  const [directionsRenderer, setDirectionsRenderer] = useState<google.maps.DirectionsRenderer>();
+
+  useEffect(() => {
+    if (!routesLib || !map) return;
+    setDirectionsService(new routesLib.DirectionsService());
+    setDirectionsRenderer(new routesLib.DirectionsRenderer({ map, suppressMarkers: true }));
+  }, [routesLib, map]);
+
+  const originKey = origin ? `${origin.lat},${origin.lng}` : "";
+  const destKey = destination ? `${destination.lat},${destination.lng}` : "";
+
+  useEffect(() => {
+    if (!directionsService || !directionsRenderer || !origin || !destination) return;
+
+    directionsService.route({
+      origin,
+      destination,
+      travelMode: google.maps.TravelMode.DRIVING
+    }).then(response => {
+      directionsRenderer.setDirections(response);
+      const route = response.routes[0];
+      if (route && route.legs[0] && setDistanceInfo) {
+        const durMins = route.legs[0].duration?.value ? Math.ceil(route.legs[0].duration.value / 60) : 0;
+        const distKm = route.legs[0].distance?.value ? +(route.legs[0].distance.value / 1000).toFixed(2) : 0;
+        setDistanceInfo(distKm, durMins);
+      }
+    }).catch(err => console.error("Directions error", err));
+
+    return () => { directionsRenderer.setDirections({routes:[]}); }
+  }, [directionsService, directionsRenderer, originKey, destKey, origin, destination, setDistanceInfo]);
+
+  return null;
+}
 import SignaturePad from "@/components/SignaturePad";
 import { toast } from "sonner";
 import { ContactVerification } from "@/components/ContactVerification";
 
-type DeliveryStatus = "en-route" | "arrived" | "photo-proof" | "signature" | "delivered";
+type DeliveryStatus = "not-started" | "en-route" | "arrived" | "photo-proof" | "signature" | "delivered";
 
 const LiveTracking = () => {
   const navigate = useNavigate();
@@ -15,7 +60,7 @@ const LiveTracking = () => {
   const donationId = searchParams.get("donation");
   const deliveryPhotoRef = useRef<HTMLInputElement>(null);
 
-  const [status, setStatus] = useState<DeliveryStatus>("en-route");
+  const [status, setStatus] = useState<DeliveryStatus>("not-started");
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [eta, setEta] = useState(0);
@@ -27,6 +72,11 @@ const LiveTracking = () => {
 
   const [pickupCoords, setPickupCoords] = useState({ lat: 31.5204, lng: 74.3587 });
   const [dropoffCoords, setDropoffCoords] = useState({ lat: 31.4804, lng: 74.3187 });
+  const [isSimulated, setIsSimulated] = useState(false);
+  const simulationInterval = useRef<NodeJS.Timeout | null>(null);
+  
+  const [rideStartedAt, setRideStartedAt] = useState<string | null>(() => localStorage.getItem(`ride_start_${donationId}`));
+  const [rideEndedAt, setRideEndedAt] = useState<string | null>(() => localStorage.getItem(`ride_end_${donationId}`));
 
   const calcDistance = useCallback((lat1: number, lng1: number, lat2: number, lng2: number) => {
     const R = 6371;
@@ -50,10 +100,16 @@ const LiveTracking = () => {
       .eq("id", donationId)
       .single();
     
+    if (error) {
+       console.error("fetchTrackingData: failed to fetch donation", error);
+       toast.error("Failed to fetch donation details.");
+    }
+    
     if (donationData) {
       setDonation({ title: donationData.title, location: donationData.location });
       if (donationData.status === "delivered") setStatus("delivered");
       else if (donationData.status === "picked_up") setStatus("arrived");
+      // Don't auto-set en-route here, we want them to click "Start Ride" usually, unless already tracking
 
       // Generate stable coordinates for this donation if not present
       const h = donationId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 100;
@@ -144,9 +200,6 @@ const LiveTracking = () => {
     }
   };
 
-  const [isSimulated, setIsSimulated] = useState(false);
-  const simulationInterval = useRef<NodeJS.Timeout | null>(null);
-
   const startSimulation = useCallback(() => {
     setIsSimulated(true);
     setGpsError(null);
@@ -157,7 +210,7 @@ const LiveTracking = () => {
   }, [location, pickupCoords]);
 
   useEffect(() => {
-    if (isSimulated && location) {
+    if (isSimulated && location && status !== "not-started") {
       simulationInterval.current = setInterval(() => {
         const targetLat = status === "en-route" ? pickupCoords.lat : dropoffCoords.lat;
         const targetLng = status === "en-route" ? pickupCoords.lng : dropoffCoords.lng;
@@ -185,21 +238,28 @@ const LiveTracking = () => {
   }, [isSimulated, location, status, pickupCoords, dropoffCoords]);
 
   useEffect(() => {
-    if (isSimulated && location) {
-      const targetLat = status === "en-route" ? pickupCoords.lat : dropoffCoords.lat;
-      const targetLng = status === "en-route" ? pickupCoords.lng : dropoffCoords.lng;
-      const dist = calcDistance(location.lat, location.lng, targetLat, targetLng);
+    if (!location || status === "not-started" || status === "arrived" || status === "signature" || status === "delivered") return;
+    
+    const targetLat = status === "en-route" ? pickupCoords.lat : dropoffCoords.lat;
+    const targetLng = status === "en-route" ? pickupCoords.lng : dropoffCoords.lng;
+    
+    // mathematical distance
+    const dist = calcDistance(location.lat, location.lng, targetLat, targetLng);
+    
+    // Fallback if no Maps API key is defined
+    if (!process.env.GOOGLE_MAPS_PLATFORM_KEY) {
       setDistance(+dist.toFixed(2));
       const estimatedMinutes = Math.ceil((dist / 25) * 60);
       setEta(estimatedMinutes > 1 ? estimatedMinutes : 1);
-
-      if (dist < 0.05 && status === "en-route") {
-        toast.success("You have arrived at the pickup point!");
-        setStatus("arrived");
-      }
-      updateLocationInDb(location.lat, location.lng);
     }
-  }, [location, isSimulated, status, pickupCoords, dropoffCoords, calcDistance, updateLocationInDb]);
+
+    if (dist < 0.05 && status === "en-route") {
+      toast.success("You have arrived at the pickup point!");
+      setStatus("arrived");
+    }
+    
+    updateLocationInDb(location.lat, location.lng);
+  }, [location, status, pickupCoords, dropoffCoords, calcDistance, updateLocationInDb]);
 
   useEffect(() => {
     if (isSimulated) return; // Don't use real GPS if simulation is on
@@ -214,24 +274,6 @@ const LiveTracking = () => {
         const { latitude, longitude } = position.coords;
         setLocation({ lat: latitude, lng: longitude });
         setGpsError(null);
-
-        // Check if we are going to pickup or dropoff
-        const targetLat = status === "en-route" ? pickupCoords.lat : dropoffCoords.lat;
-        const targetLng = status === "en-route" ? pickupCoords.lng : dropoffCoords.lng;
-
-        const dist = calcDistance(latitude, longitude, targetLat, targetLng);
-        setDistance(+dist.toFixed(2));
-        
-        // Dynamic ETA: Assuming average speed of 25 km/h in city
-        const estimatedMinutes = Math.ceil((dist / 25) * 60);
-        setEta(estimatedMinutes > 1 ? estimatedMinutes : 1);
-
-        if (dist < 0.05 && status === "en-route") {
-          toast.success("You have arrived at the pickup point!");
-          setStatus("arrived");
-        }
-        
-        updateLocationInDb(latitude, longitude);
       },
       (error) => {
         console.error("GPS Watch error:", error);
@@ -248,7 +290,7 @@ const LiveTracking = () => {
       }
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [calcDistance, updateLocationInDb, status, pickupCoords, dropoffCoords, isSimulated]);
+  }, [isSimulated]);
 
   const handleDeliveryPhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -270,7 +312,7 @@ const LiveTracking = () => {
   const handleSignatureSaved = (base64: string) => {
     console.log("handleSignatureSaved called in LiveTracking, data length:", base64.length);
     setSignatureBase64(base64);
-    toast.success("Signature captured! Scroll neeche karain confirm karne k liye.");
+    toast.success("Signature captured! Scroll down to confirm.");
     
     // Smooth scroll to the next button
     setTimeout(() => {
@@ -341,6 +383,9 @@ const LiveTracking = () => {
         }
       }
 
+      const now = new Date().toISOString();
+      localStorage.setItem(`ride_end_${donationId}`, now);
+      setRideEndedAt(now);
       setStatus("delivered");
       toast.success("Delivery confirmed with signature proof!");
     } catch (err: any) {
@@ -491,8 +536,36 @@ const LiveTracking = () => {
             <Loader2 size={32} className="text-primary animate-spin" />
             <p className="text-sm text-foreground font-medium">Getting GPS location...</p>
           </div>
-        ) : (
+        ) : !API_KEY ? (
           <LeafletMap latitude={location.lat} longitude={location.lng} pickupLat={pickupCoords.lat} pickupLng={pickupCoords.lng} dropoffLat={dropoffCoords.lat} dropoffLng={dropoffCoords.lng} className="h-72" />
+        ) : (
+          <APIProvider apiKey={API_KEY} version="weekly">
+            <Map
+              defaultCenter={{ lat: location.lat, lng: location.lng }}
+              center={{ lat: location.lat, lng: location.lng }}
+              defaultZoom={15}
+              mapId="DEMO_MAP_ID"
+              internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
+              style={{ width: '100%', height: '18rem' }}
+              disableDefaultUI={true}
+            >
+              <AdvancedMarker position={{ lat: location.lat, lng: location.lng }} title="You">
+                 <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/30 text-white border-2 border-white ring-4 ring-primary/20">
+                   <Locate size={14} />
+                 </div>
+              </AdvancedMarker>
+              
+              <AdvancedMarker position={status === "en-route" ? pickupCoords : dropoffCoords} title="Destination">
+                 <Pin background="#ef4444" glyphColor="#fff" borderColor="#b91c1c" />
+              </AdvancedMarker>
+              
+              <RouteDisplay 
+                origin={location} 
+                destination={status === "en-route" ? pickupCoords : dropoffCoords} 
+                setDistanceInfo={(d, m) => { setDistance(d); setEta(m); }}
+              />
+            </Map>
+          </APIProvider>
         )}
       </div>
 
@@ -550,34 +623,73 @@ const LiveTracking = () => {
         </div>
       )}
 
+      {/* Timestamps */}
+      {(rideStartedAt || rideEndedAt) && (
+        <div className="mx-4 mt-4 glass-card-elevated p-4 flex gap-4 text-center divide-x divide-border">
+          {rideStartedAt && (
+            <div className="flex-1">
+              <p className="text-xs text-muted-foreground font-body">Started</p>
+              <p className="text-sm font-bold text-foreground">
+                {new Date(rideStartedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+              <p className="text-[10px] text-muted-foreground">{new Date(rideStartedAt).toLocaleDateString()}</p>
+            </div>
+          )}
+          {rideEndedAt && (
+            <div className="flex-1">
+              <p className="text-xs text-muted-foreground font-body">Ended</p>
+              <p className="text-sm font-bold text-foreground">
+                {new Date(rideEndedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+              <p className="text-[10px] text-muted-foreground">{new Date(rideEndedAt).toLocaleDateString()}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Pickup details */}
-      <div className="mx-4 mt-4 glass-card-elevated p-4">
+      <div className="mx-4 mt-4 glass-card-elevated p-4 mb-4">
         <h3 className="font-semibold text-foreground mb-3">Pickup Details</h3>
         <div className="flex items-start gap-3 mb-3">
           <div className="w-3 h-3 rounded-full bg-primary mt-1" />
           <div>
-            <p className="text-sm font-medium text-foreground">Pickup Point</p>
-            <p className="text-xs text-muted-foreground font-body">{donation?.location || "Loading pickup location..."}</p>
+            <p className="text-sm font-medium text-foreground">Pickup Point (Real Location)</p>
+            <p className="text-xs text-muted-foreground font-body leading-relaxed max-w-[250px]">{(donation && donation.location) ? donation.location : "Not specified by donor"}</p>
           </div>
         </div>
         <div className="ml-1.5 w-px h-6 bg-border" />
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 mt-3">
           <div className="w-3 h-3 rounded-full bg-destructive mt-1" />
           <div>
-            <p className="text-sm font-medium text-foreground">Drop-off Point (NGO)</p>
-            <p className="text-xs text-muted-foreground font-body">{ngo ? `${ngo.full_name}${ngo.address ? `, ${ngo.address}` : ""}` : "Loading drop-off location..."}</p>
+            <p className="text-sm font-medium text-foreground">Drop-off Point (NGO Location)</p>
+            <p className="text-xs text-muted-foreground font-body leading-relaxed max-w-[250px]">{(ngo && ngo.address) ? `${ngo.full_name}, ${ngo.address}` : ngo?.full_name ? ngo.full_name : "Not specified"}</p>
           </div>
         </div>
       </div>
 
       <div className="mx-4 mt-4 mb-8">
-        <button
-          onClick={handleStartDeliveryProof}
-          className="w-full py-3.5 rounded-xl font-semibold text-secondary-foreground gradient-warm transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2"
-        >
-          <Camera size={18} />
-          {deliveryPhoto ? "Retake Photo & Get Signature" : "Deliver — Take Photo & Signature"}
-        </button>
+        {status === "not-started" ? (
+          <button
+            onClick={() => {
+              const now = new Date().toISOString();
+              localStorage.setItem(`ride_start_${donationId}`, now);
+              setRideStartedAt(now);
+              setStatus("en-route");
+              toast.success("Ride started! Drive safely.");
+            }}
+            className="w-full py-3.5 rounded-xl font-bold text-white bg-emerald-600 transition-all hover:bg-emerald-700 active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            Start Ride
+          </button>
+        ) : (
+          <button
+            onClick={handleStartDeliveryProof}
+            className="w-full py-3.5 rounded-xl font-semibold text-secondary-foreground gradient-warm transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            <Camera size={18} />
+            {deliveryPhoto ? "Retake Photo & Get Signature" : "Deliver — Take Photo & Signature"}
+          </button>
+        )}
       </div>
     </div>
   );

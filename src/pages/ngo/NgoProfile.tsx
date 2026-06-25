@@ -70,15 +70,17 @@ const NgoProfile = () => {
         <h1 className="text-lg font-bold">NGO Profile</h1>
       </div>
 
-      <div className="gradient-primary px-5 pt-10 pb-12 rounded-b-[2.5rem] text-center shadow-lg mx-2 mt-2">
+      <div className="gradient-primary px-5 pt-10 pb-12 rounded-b-[2.5rem] text-center shadow-lg">
         <div className="w-20 h-20 rounded-full bg-primary-foreground/20 backdrop-blur-sm border-2 border-white/20 flex items-center justify-center mx-auto mb-3 text-2xl font-bold text-primary-foreground">
           {(profile?.full_name || "N").charAt(0)}
         </div>
         <h1 className="text-xl font-bold text-primary-foreground leading-tight">{profile?.full_name || "NGO User"}</h1>
-        <p className="text-sm text-primary-foreground/70">Organization Account</p>
+        <div className="inline-flex items-center mt-1.5 bg-white/20 text-white text-[9px] uppercase font-black tracking-widest px-2.5 py-0.5 rounded-full border border-white/20 shadow-sm">
+          Organization
+        </div>
       </div>
 
-      <div className="page-padding -mt-6 relative z-10 space-y-3">
+      <div className="page-padding mt-6 relative z-10 space-y-3">
         <div className="glass-card-elevated p-4 flex items-center gap-3">
           <Mail size={18} className="text-muted-foreground" />
           <div>
@@ -101,6 +103,8 @@ const NgoProfile = () => {
             )}
           </div>
         </div>
+
+
 
         <button 
           onClick={() => navigate("/ngo/settings")}

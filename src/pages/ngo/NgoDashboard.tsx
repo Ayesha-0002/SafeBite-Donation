@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Home, Package, CheckCircle, Bell, Loader2, Truck, User, MessageCircle, Eye, UserPlus, MapPin, Utensils, LogOut, Phone, Star } from "lucide-react";
+import { Home, Package, CheckCircle, Bell, Loader2, Truck, User, MessageCircle, UserPlus, MapPin, Utensils, LogOut, Phone, Star } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -17,14 +17,73 @@ const RiderAssignmentControl = ({
   donationId, 
   volunteers, 
   onAssign,
-  ratings
+  ratings,
+  allDonations = [],
+  currentNgoId,
+  ngos = [],
+  onRefreshVolunteers
 }: { 
   donationId: string; 
   volunteers: any[]; 
   onAssign: (donationId: string, volunteerId: string) => Promise<void>;
   ratings: any[];
+  allDonations?: any[];
+  currentNgoId?: string;
+  ngos?: any[];
+  onRefreshVolunteers?: () => void;
 }) => {
   const [localSelected, setLocalSelected] = useState("");
+  const [approvingRiderId, setApprovingRiderId] = useState<string | null>(null);
+  const [localApprovedIds, setLocalApprovedIds] = useState<string[]>([]);
+
+  const handleApproveRiderToTeam = async (riderId: string, name: string) => {
+    setApprovingRiderId(riderId);
+    try {
+      await supabase
+        .from("rider_join_requests")
+        .update({ status: "accepted" })
+        .eq("rider_id", riderId)
+        .eq("ngo_id", currentNgoId)
+        .throwOnError();
+
+      await Promise.all([
+        supabase
+          .from("profiles")
+          .update({ 
+            is_approved: true, 
+            ngo_id: currentNgoId,
+            role: "volunteer"
+          })
+          .eq("id", riderId)
+          .throwOnError(),
+        supabase
+          .from("user_roles")
+          .upsert({ 
+            user_id: riderId, 
+            role: "volunteer" 
+          })
+          .throwOnError()
+      ]);
+
+      await supabase.from("notifications").insert({
+        user_id: riderId,
+        title: "Joined Team! 🎉",
+        message: "You have been approved and added to the NGO's team.",
+        type: "success"
+      });
+
+      setLocalApprovedIds(prev => [...prev, riderId]);
+      toast.success(`${name} is now approved and part of your team.`);
+      if (onRefreshVolunteers) {
+        onRefreshVolunteers();
+      }
+    } catch (err: any) {
+      console.error("Direct riders approval error:", err);
+      toast.error("Failed to approve rider to team.");
+    } finally {
+      setApprovingRiderId(null);
+    }
+  };
 
   // Helper to calculate volunteer stats
   const getVolunteerStats = (volunteerId: string) => {
@@ -34,6 +93,16 @@ const RiderAssignmentControl = ({
       avgRating,
       count: vRatings.length
     };
+  };
+
+  // Check if rider is currently busy delivering for a different NGO
+  const getBusyStatus = (volunteerId: string) => {
+    const activeDonationsWithOtherNgo = allDonations.filter(d => 
+      d.assigned_volunteer_id === volunteerId && 
+      (d.status === "accepted" || d.status === "picked_up") && 
+      d.ngo_verified_by !== currentNgoId
+    );
+    return activeDonationsWithOtherNgo.length > 0;
   };
 
   const sortedVolunteers = [...volunteers]
@@ -56,64 +125,139 @@ const RiderAssignmentControl = ({
     });
 
   return (
-    <div className="space-y-3 bg-muted/20 p-4 rounded-2xl border border-border/50">
-      <div className="flex items-center justify-between mb-1">
-        <h5 className="text-[10px] font-black uppercase text-muted-foreground tracking-widest">Select Rider to Assign (Sorted by Rating)</h5>
+    <div className="space-y-4 bg-slate-50/50 p-3 sm:p-5 rounded-3xl border border-slate-100 shadow-inner">
+      <div className="flex items-center justify-between px-2">
+        <h5 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] flex items-center gap-2">
+           <UserPlus size={12} className="text-primary/50" />
+           Assign to Rider Team
+         </h5>
+        <span className="text-[10px] font-bold text-slate-400">{sortedVolunteers.length} Online</span>
       </div>
       
-      <div className="bg-background border border-border rounded-xl overflow-hidden max-h-60 overflow-y-auto shadow-sm divide-y divide-border/30">
+      <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1 custom-scrollbar">
         {sortedVolunteers.length > 0 ? (
           sortedVolunteers.map(v => {
             const stats = getVolunteerStats(v.id);
+            const isBusy = getBusyStatus(v.id);
+            const isApprovedLocally = localApprovedIds.includes(v.id);
+            const isMyTeam = v.ngo_id === currentNgoId || isApprovedLocally;
+            
+            const currentNgoName = ngos?.find((n: any) => n.id === currentNgoId)?.full_name || "My Team";
+            const ngoName = isMyTeam 
+              ? currentNgoName 
+              : (ngos?.find((n: any) => n.id === v.ngo_id)?.full_name || "Independent");
+
             return (
               <div
                 key={v.id}
-                className="w-full px-4 py-3 flex items-center justify-between gap-3 bg-card hover:bg-muted/30 transition-all duration-200"
+                className={`group relative p-3.5 rounded-2xl border transition-all duration-300 bg-white ${
+                  isBusy 
+                    ? "border-slate-100 opacity-60 bg-white/55" 
+                    : "border-slate-150 hover:border-primary/20 hover:shadow-md"
+                }`}
               >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-black text-[10px] shrink-0 border border-primary/20">
-                    {(v.full_name || "U").charAt(0).toUpperCase()}
+                {/* Main Identity Information (Flexible column/row setup that never squeezes) */}
+                <div className="flex items-start gap-3">
+                  {/* Avatar */}
+                  <div className="relative shrink-0 pt-0.5">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm border shadow-sm transition-colors ${
+                      isMyTeam ? "bg-primary/10 text-primary border-primary/20" : "bg-slate-50 text-slate-400 border-slate-100"
+                    }`}>
+                      {(v.full_name || "U").charAt(0).toUpperCase()}
+                    </div>
+                    {!isBusy && (
+                      <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white shadow-sm" />
+                    )}
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-bold text-foreground">
-                      {v.full_name || "Unknown Rider"}
-                    </div>
-                    <div className="text-[9px] text-muted-foreground truncate uppercase flex items-center gap-2 flex-wrap mt-0.5">
-                        {v.phone || v.email || "No phone"}
-                        <span className="flex items-center gap-0.5 text-yellow-600 font-bold">
-                            <Star size={9} className="fill-yellow-600" /> {stats.avgRating.toFixed(1)} ({stats.count} reviews)
+
+                  {/* Text Details */}
+                  <div className="flex-1 min-w-0 flex flex-col gap-1.5 animate-fade-in">
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="min-w-0 flex flex-col gap-1 flex-1">
+                        {/* Rider Name (Breaks words naturally, never truncated, fully visible) */}
+                        <span className="font-bold text-slate-800 text-[14px] leading-tight block break-words">
+                          {v.full_name || "Unknown Rider"}
                         </span>
-                        {v.statusLabel && (
-                          <span className={`px-1 rounded-[4px] font-extrabold text-[7px] tracking-wide uppercase ${
-                            v.statusLabel === "Approved Rider" ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" :
-                            v.statusLabel === "Approval Pending" ? "bg-amber-500/10 text-amber-600 border border-amber-500/20" :
-                            v.statusLabel === "Approval Rejected" ? "bg-rose-500/10 text-rose-600 border border-rose-500/20" :
-                            "bg-blue-500/10 text-blue-600 border border-blue-500/20"
+                        
+                        {/* Organization / Status Badge */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                          <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border shrink-0 ${
+                            isMyTeam 
+                              ? "bg-emerald-50 text-emerald-600 border-emerald-150" 
+                              : "bg-slate-50 text-slate-500 border-slate-200"
                           }`}>
-                            {v.statusLabel}
+                            {ngoName}
                           </span>
-                        )}
+                        </div>
+                      </div>
+
+                      {/* Average Rating indicator on the right of the name row */}
+                      <div className="flex items-center gap-0.5 text-amber-500 font-bold text-[11px] shrink-0 bg-amber-50/60 px-1.5 py-0.5 rounded ml-2">
+                        <Star size={10} className="fill-amber-500" />
+                        <span>{stats.avgRating.toFixed(1)}</span>
+                      </div>
                     </div>
+
+                    {/* Complete phone number (Always fully visible, never truncated or compressed) */}
+                    {v.phone && (
+                      <div className="flex items-center gap-1 text-slate-500 font-semibold text-[11px] mt-0.5">
+                        <Phone size={10} className="text-slate-400 shrink-0" />
+                        <span className="select-all tracking-wide">{v.phone}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="shrink-0">
+
+                {/* Footer action buttons placed in its own row to avoid horizontal squeezing */}
+                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
+                  {!isMyTeam && (
+                    <button
+                      type="button"
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        await handleApproveRiderToTeam(v.id, v.full_name || "Unknown Rider");
+                      }}
+                      disabled={approvingRiderId === v.id}
+                      className="h-8 px-3 rounded-lg font-black text-[10px] uppercase tracking-widest text-[#0ea5e9] bg-[#0ea5e9]/5 hover:bg-[#0ea5e9] hover:text-white border border-[#0ea5e9]/15 transition-all duration-200 flex items-center justify-center gap-1.5 shadow-sm flex-1"
+                    >
+                      {approvingRiderId === v.id ? (
+                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <UserPlus size={11} className="shrink-0" />
+                      )}
+                      Approve
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={async (e) => {
                       e.preventDefault();
                       e.stopPropagation();
+                      if (isBusy) {
+                        toast.error("Rider currently busy!");
+                        return;
+                      }
                       await onAssign(donationId, v.id);
                     }}
-                    className="px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest text-[#15803d] bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white hover:border-emerald-600 transition-all duration-300 shadow-sm"
+                    className={`h-8 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all duration-200 border flex items-center justify-center gap-1.5 flex-1 ${
+                      isBusy
+                        ? "text-rose-400 bg-rose-50 border-rose-100 cursor-not-allowed"
+                        : "text-emerald-600 bg-emerald-50 border-emerald-100 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 hover:shadow-sm"
+                    }`}
                   >
-                    Assign
+                    {isBusy ? "Busy" : "Assign Rider"}
                   </button>
                 </div>
               </div>
             );
           })
         ) : (
-          <div className="p-4 text-center text-xs text-muted-foreground">No active riders found.</div>
+          <div className="py-12 text-center rounded-[2rem] bg-muted/5 border border-dashed border-border/50">
+            <User size={32} className="mx-auto text-muted-foreground/20 mb-3" />
+            <p className="text-[11px] text-muted-foreground font-bold px-6">No active riders found...</p>
+          </div>
         )}
       </div>
     </div>
@@ -139,6 +283,7 @@ const NgoDashboard = () => {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [stats, setStats] = useState({ received: 0, inProgress: 0, available: 0 });
+  const [ngos, setNgos] = useState<any[]>([]);
 
   // Verification state
   const [verificationDialog, setVerificationDialog] = useState<{ isOpen: boolean; phone: string; action: () => void }>({ 
@@ -155,6 +300,19 @@ const NgoDashboard = () => {
   const [ratingComment, setRatingComment] = useState("");
   const [submittingRating, setSubmittingRating] = useState(false);
 
+  // Stats Popup State
+  const [activeStatType, setActiveStatType] = useState<"available" | "inProgress" | "received" | null>(null);
+  const [popupDateFilter, setPopupDateFilter] = useState<"all" | "today" | "yesterday" | "tomorrow">("all");
+
+  // Active requests card expansion state
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
+  const [riderRequests, setRiderRequests] = useState<any[]>([]);
+  const [processingRequest, setProcessingRequest] = useState<string | null>(null);
+
+  // Claim food confirmation dialog states
+  const [claimDialog, setClaimDialog] = useState<any | null>(null);
+  const [claiming, setClaiming] = useState(false);
+
   const fetchData = useCallback(async (showLoading = false) => {
     if (!user) return;
     console.log("NGO: Fetching data...");
@@ -162,6 +320,9 @@ const NgoDashboard = () => {
     if (showLoading && donations.length === 0) setLoading(true);
 
     try {
+      const { data: ngosData } = await supabase.from("profiles").select("id, full_name").eq("role", "ngo");
+      setNgos(ngosData || []);
+
       const { data: donationsRes, error } = await supabase
         .from("food_donations")
         .select("*")
@@ -192,7 +353,7 @@ const NgoDashboard = () => {
           .in("role", ["volunteer", "rider"]),
         supabase
           .from("registration_requests")
-          .select("user_id, status")
+          .select("id, status")
           .in("requested_role", ["volunteer", "rider"]),
         supabase
           .from("user_roles")
@@ -205,7 +366,7 @@ const NgoDashboard = () => {
       const excludedRoles = excludedRolesRes.data || [];
       
       const roleUserIds = volRoles.map(r => r.user_id).filter(Boolean);
-      const reqUserIds = regRequests.map(r => r.user_id).filter(Boolean);
+      const reqUserIds = regRequests.map(r => r.id).filter(Boolean);
       const excludedUserIds = new Set(excludedRoles.map(r => r.user_id).filter(Boolean));
       
       // Combine resources to get all registered riders/volunteers cleanly
@@ -225,7 +386,7 @@ const NgoDashboard = () => {
         console.log("NGO Dashboard: No registered volunteers. Falling back to all profiles for testing...");
         const { data: allProfiles } = await supabase
           .from("profiles")
-          .select("id, full_name");
+          .select("id, full_name, phone, ngo_id, is_approved");
           
         if (allProfiles && allProfiles.length > 0) {
           volunteerIds = allProfiles
@@ -244,10 +405,10 @@ const NgoDashboard = () => {
       }
 
       // 2. Fetch profiles, notifications, and ratings in parallel
-      const [profilesRes, notificationsRes, ratingsRes] = await Promise.all([
+      const [profilesRes, notificationsRes, ratingsRes, riderReqRes] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, phone")
+          .select("id, full_name, phone, ngo_id, is_approved")
           .in("id", volunteerIds.length > 0 ? volunteerIds : ["dummy-id"]),
         
         supabase
@@ -259,15 +420,38 @@ const NgoDashboard = () => {
         supabase
           .from("donation_ratings")
           .select("*")
-          .eq("rated_by_user_id", user.id)
+          .eq("rated_by_user_id", user.id),
+
+        supabase
+          .from("rider_join_requests")
+          .select("id, rider_id, status, created_at")
+          .eq("ngo_id", user.id)
+          .eq("status", "pending")
       ]);
 
       if (profilesRes.error) throw profilesRes.error;
 
+      const riderReqData = (riderReqRes as any)?.data || [];
+      const riderReqIds = riderReqData.map((r: any) => r.rider_id).filter(Boolean);
+      let riderReqProfiles: any[] = [];
+      if (riderReqIds.length > 0) {
+        const { data: rProfiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, phone")
+          .in("id", riderReqIds);
+        riderReqProfiles = rProfiles || [];
+      }
+      const riderReqMap = new Map(riderReqProfiles.map((p: any) => [p.id, p]));
+      const enrichedRiderReqs = riderReqData.map((r: any) => ({
+        ...r,
+        rider: riderReqMap.get(r.rider_id)
+      }));
+      setRiderRequests(enrichedRiderReqs);
+
       setMyRatings(ratingsRes.data || []);
       const allDonations = enrichedDonations;
       
-      const regStatusMap = new Map(regRequests.map(r => [r.user_id, r.status]));
+      const regStatusMap = new Map(regRequests.map(r => [r.id, r.status]));
       const myVolunteers = (profilesRes.data || []).map((v: any) => {
         const isApprovedRole = (volRoles || []).some(vr => vr.user_id === v.id);
         const regStatus = regStatusMap.get(v.id);
@@ -327,6 +511,69 @@ const NgoDashboard = () => {
     signOut();
   };
 
+  const handleApproveRider = async (requestId: string, riderId: string) => {
+    setProcessingRequest(requestId);
+    try {
+      await supabase
+        .from("rider_join_requests")
+        .update({ status: "accepted" })
+        .eq("id", requestId)
+        .throwOnError();
+      await Promise.all([
+        supabase
+          .from("profiles")
+          .update({ 
+            is_approved: true, 
+            ngo_id: user?.id,
+            role: "volunteer"
+          })
+          .eq("id", riderId)
+          .throwOnError(),
+        supabase
+          .from("user_roles")
+          .upsert({ 
+            user_id: riderId, 
+            role: "volunteer" 
+          })
+          .throwOnError()
+      ]);
+      await supabase.from("notifications").insert({
+        user_id: riderId,
+        title: "Request Approved! 🎉",
+        message: "Your join request has been approved. You can now login.",
+        type: "info"
+      });
+      toast.success("Rider approved! They can now login.");
+      fetchData(false);
+    } catch (err: any) {
+      toast.error("Approval failed: " + (err.message || "Error"));
+    } finally {
+      setProcessingRequest(null);
+    }
+  };
+
+  const handleRejectRider = async (requestId: string, riderId: string) => {
+    setProcessingRequest(requestId);
+    try {
+      await supabase
+        .from("rider_join_requests")
+        .update({ status: "rejected" })
+        .eq("id", requestId);
+      await supabase.from("notifications").insert({
+        user_id: riderId,
+        title: "Request Declined",
+        message: "Your join request was not approved by the NGO.",
+        type: "info"
+      });
+      toast.success("Request rejected.");
+      fetchData(false);
+    } catch (err: any) {
+      toast.error("Rejection failed: " + (err.message || "Error"));
+    } finally {
+      setProcessingRequest(null);
+    }
+  };
+
   useEffect(() => {
     if (authLoading || !user) return;
 
@@ -357,6 +604,12 @@ const NgoDashboard = () => {
           fetchData(false);
         }
       )
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "rider_join_requests",
+        filter: `ngo_id=eq.${user.id}`,
+      }, () => { fetchData(false); })
       .subscribe();
 
     return () => {
@@ -398,32 +651,42 @@ const NgoDashboard = () => {
   };
 
   const location = useLocation();
-  const isRequestsTab = location.pathname === "/ngo/requests";
+  const isRequestsTab = location.pathname.includes("/requests");
 
   const handleAcceptDonation = async (donationId: string) => {
     if (!user) return;
-    await supabase.from("food_donations").update({
-      status: "accepted",
-      ngo_verified_by: user.id,
-      ngo_verified_at: new Date().toISOString(),
-    }).eq("id", donationId);
+    setClaiming(true);
+    try {
+      const { error } = await supabase.from("food_donations").update({
+        status: "accepted",
+        ngo_verified_by: user.id,
+        ngo_verified_at: new Date().toISOString(),
+      }).eq("id", donationId);
 
-    // Background notify
-    supabase.from("food_donations").select("title, donor_id").eq("id", donationId).single().then(({ data: donation }) => {
-      if (donation) {
-        supabase.from("notifications").insert({
-          user_id: donation.donor_id,
-          title: "Food Accepted!",
-          message: `An NGO has accepted your donation: ${donation.title}.`,
-          type: "info",
-          related_donation_id: donationId,
-        }).then(() => {});
-      }
-    });
+      if (error) throw error;
 
-    toast.success("Food donation accepted! Now assign a rider.");
-    setAssigningId(donationId);
-    fetchData();
+      // Background notify
+      supabase.from("food_donations").select("title, donor_id").eq("id", donationId).single().then(({ data: donation }) => {
+        if (donation) {
+          supabase.from("notifications").insert({
+            user_id: donation.donor_id,
+            title: "Food Accepted!",
+            message: `An NGO has accepted your donation: ${donation.title}.`,
+            type: "info",
+            related_donation_id: donationId,
+          }).then(() => {});
+        }
+      });
+
+      toast.success("Food donation accepted! Now assign a rider.");
+      setAssigningId(donationId);
+      setClaimDialog(null);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setClaiming(false);
+    }
   };
 
   const handleAssignVolunteer = async (donationId: string, volunteerId: string) => {
@@ -431,36 +694,54 @@ const NgoDashboard = () => {
       toast.error("Please select a rider first!");
       return;
     }
-    await supabase.from("food_donations").update({
+
+    // Safety check: verify if the rider is busy with another NGO
+    const isBusy = (donations || []).some(d => 
+      d.assigned_volunteer_id === volunteerId && 
+      (d.status === "accepted" || d.status === "picked_up") && 
+      d.ngo_verified_by !== user?.id
+    );
+
+    if (isBusy) {
+      toast.error("A rider cannot pick up donations from two different NGOs at the same time!");
+      return;
+    }
+
+    const { error: updateAuthError } = await supabase.from("food_donations").update({
       assigned_volunteer_id: volunteerId,
       status: "picked_up",
     }).eq("id", donationId);
 
-    // Background notify assigned volunteer and donor
-    supabase.from("food_donations").select("title, donor_id").eq("id", donationId).single().then(({ data: donation }) => {
-      if (donation) {
-        const volunteerInfo = volunteers.find(v => v.id === volunteerId);
-        const volunteerName = volunteerInfo?.full_name || "A rider";
+    if (updateAuthError) {
+       toast.error("Failed to assign rider");
+       return;
+    }
 
-        // 1. Notify volunteer/rider
-        supabase.from("notifications").insert({
-          user_id: volunteerId,
-          title: "New Ride Assigned! 🚴",
-          message: `You have been assigned to pick up and deliver: ${donation.title}.`,
-          type: "pickup-assigned",
-          related_donation_id: donationId,
-        }).then(() => {});
+    // Await notification assignment to ensure it processes
+    const { data: donation } = await supabase.from("food_donations").select("title, donor_id").eq("id", donationId).single();
+    
+    if (donation) {
+      const volunteerInfo = volunteers.find(v => v.id === volunteerId);
+      const volunteerName = volunteerInfo?.full_name || "A rider";
 
-        // 2. Notify donor
-        supabase.from("notifications").insert({
-          user_id: donation.donor_id,
-          title: "Rider Dispatched! 🚴",
-          message: `${volunteerName} is on their way to pick up your donation: ${donation.title}.`,
-          type: "info",
-          related_donation_id: donationId,
-        }).then(() => {});
-      }
-    });
+      // 1. Notify volunteer/rider
+      await supabase.from("notifications").insert({
+        user_id: volunteerId,
+        title: "New Ride Assigned! 🚴",
+        message: `You have been assigned to pick up and deliver: ${donation.title}.`,
+        type: "pickup-assigned",
+        related_donation_id: donationId,
+      });
+
+      // 2. Notify donor
+      await supabase.from("notifications").insert({
+        user_id: donation.donor_id,
+        title: "Rider Dispatched! 🚴",
+        message: `${volunteerName} is on their way to pick up your donation: ${donation.title}.`,
+        type: "info",
+        related_donation_id: donationId,
+      });
+    }
 
     toast.success("Rider assigned! They will pick up the food now.");
     setAssigningId(null);
@@ -513,18 +794,9 @@ const NgoDashboard = () => {
             </div>
             <div>
               <h1 className="text-lg font-bold text-primary-foreground tracking-tight">SafeBite</h1>
-              <p className="text-[10px] uppercase font-bold text-primary-foreground/60 tracking-widest">NGO / ORG</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => { 
-                localStorage.removeItem("cache_n_donations");
-                localStorage.removeItem("cache_n_volunteers");
-                fetchData(true);
-                toast.success("Cache Cleared! 🔄"); 
-              }} className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-primary-foreground hover:bg-white/20 transition-all" title="Clear Cache">
-              <Eye size={18} />
-            </button>
             <button onClick={() => navigate("/notifications")} className="w-9 h-9 rounded-full bg-white/10 backdrop-blur-md border border-white/10 flex items-center justify-center text-primary-foreground relative hover:bg-white/20 transition-all">
               <Bell size={18} />
               {unreadNotifications > 0 && (
@@ -533,30 +805,28 @@ const NgoDashboard = () => {
                 </span>
               )}
             </button>
-            <button 
-              onClick={handleLogout}
-              className="w-9 h-9 rounded-full bg-destructive/20 backdrop-blur-md border border-destructive/20 flex items-center justify-center text-white hover:bg-destructive transition-all shadow-lg"
-              title="Sign Out"
-            >
-              <LogOut size={16} />
-            </button>
           </div>
         </div>
         <div className="grid grid-cols-3 gap-3">
           {[
-            { value: stats.available.toString(), label: "Available Food" },
-            { value: stats.inProgress.toString(), label: "In Progress" },
-            { value: stats.received.toString(), label: "Received" },
+            { type: "available" as const, value: stats.available.toString(), label: "Available Food" },
+            { type: "inProgress" as const, value: stats.inProgress.toString(), label: "In Progress" },
+            { type: "received" as const, value: stats.received.toString(), label: "Received" },
           ].map((stat) => (
-            <div key={stat.label} className="bg-primary-foreground/10 backdrop-blur rounded-xl p-3 text-center">
+            <button 
+              key={stat.label} 
+              type="button"
+              onClick={() => setActiveStatType(stat.type)}
+              className="bg-primary-foreground/10 backdrop-blur rounded-xl p-3 text-center hover:bg-primary-foreground/25 active:scale-95 transition-all outline-none focus:ring-1 focus:ring-white/20 cursor-pointer select-none"
+            >
               <p className="text-2xl font-bold text-primary-foreground">{stat.value}</p>
               <p className="text-[10px] text-primary-foreground/70">{stat.label}</p>
-            </div>
+            </button>
           ))}
         </div>
       </div>
 
-      <div className="page-padding -mt-4 relative z-10">
+      <div className="page-padding mt-6 relative z-10">
         {!isRequestsTab && (
           <>
             <div className="flex items-center justify-between mb-3 px-1">
@@ -583,55 +853,62 @@ const NgoDashboard = () => {
                 {donations.filter(d => d.status === "posted").map((d) => {
                   const imgUrl = getImageUrl(d.image_url);
                   return (
-                    <div key={d.id} className="food-card p-4 overflow-hidden group">
-                      <div className="flex gap-4">
-                        <div className="relative">
+                    <div key={d.id} className="group bg-white rounded-3xl border border-slate-100 p-4 shadow-sm shadow-slate-200/50 hover:border-primary/20 hover:shadow-xl hover:shadow-primary/5 transition-all duration-500">
+                      <div className="flex gap-5">
+                        <div className="relative shrink-0">
                           {imgUrl ? (
-                            <img src={imgUrl} alt={d.title} loading="lazy" className="w-20 h-20 rounded-2xl object-cover shadow-sm ring-1 ring-border/50 transition-transform group-hover:scale-105" />
+                            <img src={imgUrl} alt={d.title} loading="lazy" className="w-24 h-24 rounded-2xl object-cover shadow-sm ring-1 ring-slate-100 transition-transform duration-500 group-hover:scale-[1.03]" />
                           ) : (
-                            <div className="w-20 h-20 rounded-2xl bg-muted flex items-center justify-center border border-border shadow-inner">
-                              <Package size={28} className="text-muted-foreground/50" />
+                            <div className="w-24 h-24 rounded-2xl bg-slate-50 flex items-center justify-center border border-slate-100 shadow-inner group-hover:scale-[1.03] transition-transform duration-500">
+                              <Package size={32} className="text-slate-300" />
                             </div>
                           )}
-                          <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-success text-white flex items-center justify-center shadow-md">
-                            <span className="text-[8px] font-black">★</span>
+                          <div className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg border-2 border-white">
+                            <Star size={10} className="fill-white" />
                           </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="font-bold text-foreground text-sm truncate mb-0.5">{d.title}</h4>
-                          <p className="text-[10px] text-primary font-black uppercase tracking-wider mb-1">Donor: {d.donor?.full_name || "Community"}</p>
-                          <div className="flex flex-wrap gap-2 mt-1">
-                            <div className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground bg-muted/80 px-2 py-0.5 rounded-md border border-border/30">
-                              <MapPin size={10} className="text-primary" /> {d.location.split(',')[0]}
+                        <div className="flex-1 min-w-0 py-1">
+                          <h4 className="font-bold text-slate-900 text-base tracking-tight truncate mb-1">{d.title}</h4>
+                          <div className="flex items-center gap-1.5 mb-3">
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none">Donor</p>
+                            <span className="w-1 h-1 rounded-full bg-slate-200" />
+                            <p className="text-[11px] font-black text-primary truncate tracking-tight">{d.donor?.full_name || "Community Partner"}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                              <MapPin size={10} className="text-primary/60" /> {d.location.split(',')[0]}
                             </div>
-                            <div className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground bg-muted/80 px-2 py-0.5 rounded-md border border-border/30">
-                              <Utensils size={10} className="text-primary" /> {d.quantity} servings
+                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                              <Utensils size={10} className="text-primary/60" /> {d.quantity} servings
                             </div>
                           </div>
-                          <div className="mt-2 text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-1 rounded-lg border border-orange-100/50 inline-block">
-                            🗓 Pickup: {d.pickup_day}
+                          <div className="mt-3 flex items-center gap-2">
+                             <div className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
+                             <p className="text-[10px] font-black text-orange-600/80 uppercase tracking-widest italic">Pickup: {d.pickup_day}</p>
                           </div>
                         </div>
                       </div>
-                      <div className="flex gap-2 mt-4">
+                      <div className="flex gap-3 mt-5">
                         <button
-                          onClick={() => handleAcceptDonation(d.id)}
-                          className="flex-[2] py-2.5 rounded-xl font-bold text-primary-foreground gradient-primary text-xs transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-primary/25"
+                          onClick={() => setClaimDialog(d)}
+                          className="flex-1 h-11 rounded-2xl font-black text-white gradient-primary text-[10px] uppercase tracking-[0.15em] transition-all hover:opacity-95 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
                         >
                           Claim Food
                         </button>
-                        <button
-                          onClick={() => handleCall(d.donor?.phone)}
-                          className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center transition-all active:scale-90 hover:bg-primary hover:text-white"
-                        >
-                          <Phone size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleWhatsApp(d.donor?.phone, d.donor?.full_name)}
-                          className="w-10 h-10 rounded-xl bg-[#25D366]/10 text-[#25D366] flex items-center justify-center transition-all active:scale-90 hover:bg-[#25D366] hover:text-white"
-                        >
-                          <MessageCircle size={16} />
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleCall(d.donor?.phone)}
+                            className="w-11 h-11 rounded-2xl bg-slate-50 text-slate-600 border border-slate-200 flex items-center justify-center transition-all hover:bg-primary hover:text-white hover:border-primary active:scale-90"
+                          >
+                            <Phone size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleWhatsApp(d.donor?.phone, d.donor?.full_name)}
+                            className="w-11 h-11 rounded-2xl bg-slate-50 text-emerald-600 border border-slate-200 flex items-center justify-center transition-all hover:bg-emerald-500 hover:text-white hover:border-emerald-500 active:scale-90"
+                          >
+                            <MessageCircle size={16} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
@@ -643,138 +920,293 @@ const NgoDashboard = () => {
 
         {isRequestsTab && (
           <>
-            {/* Accepted — Assign Rider */}
-            <h2 className="text-lg font-bold text-foreground mb-3">Your Active Requests</h2>
-            
-            {donations.filter(d => (d.status === "accepted" || d.status === "picked_up") && d.ngo_verified_by === user?.id).length === 0 ? (
-              <div className="text-center py-12 bg-muted/30 rounded-3xl border border-dashed border-border mt-2">
-                <Truck size={48} className="text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground font-medium">No active pickup requests</p>
-                <button 
-                  onClick={() => navigate("/ngo")}
-                  className="mt-4 text-xs font-bold text-primary underline"
-                >
-                  View Available Food
-                </button>
+            {/* Loading State for Requests Tab */}
+            {loading && donations.length === 0 ? (
+              <div className="space-y-4">
+                <div className="h-8 w-40 bg-muted animate-pulse rounded-lg mb-4" />
+                <div className="h-40 w-full bg-muted animate-pulse rounded-[2.5rem]" />
+                <div className="h-40 w-full bg-muted animate-pulse rounded-[2.5rem]" />
               </div>
             ) : (
-              <div className="space-y-6">
-                {donations.filter(d => d.status === "accepted" && d.ngo_verified_by === user?.id).length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-black uppercase text-muted-foreground mb-3 tracking-widest">Pending Assignment</h3>
-                    <div className="flex flex-col gap-3">
-                      {donations.filter(d => d.status === "accepted" && d.ngo_verified_by === user?.id).map((d) => (
-                        <div key={d.id} className="glass-card-elevated p-4 space-y-4">
-                          {/* Donor Contact Row */}
-                          <div className="flex items-center justify-between pb-3 border-b border-border/40">
-                            <div>
-                              <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">Donor Contact</p>
-                              <p className="text-xs font-bold text-foreground">{d.donor?.full_name || "Community Donor"}</p>
-                              <p className="text-[10px] text-muted-foreground">{d.donor?.phone || "No phone number available"}</p>
-                            </div>
-                            {d.donor?.phone && (
-                              <div className="flex gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleCall(d.donor.phone)}
-                                  className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center hover:bg-primary hover:text-white transition-all"
-                                  title="Call Donor"
-                                >
-                                  <Phone size={14} />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleWhatsApp(d.donor.phone, d.donor.full_name)}
-                                  className="w-8 h-8 rounded-lg bg-[#25D366]/10 text-[#25D366] flex items-center justify-center hover:bg-[#25D366] hover:text-white transition-all"
-                                  title="WhatsApp Donor"
-                                >
-                                  <MessageCircle size={14} />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
-                              <Truck size={20} className="text-secondary" />
-                            </div>
-                            <div>
-                              <h4 className="font-semibold text-foreground text-sm">{d.title}</h4>
-                              <p className="text-xs text-muted-foreground">📍 {d.location} · 🍽 {d.quantity} servings</p>
-                            </div>
-                          </div>
-
-                          <RiderAssignmentControl
-                            donationId={d.id}
-                            volunteers={volunteers}
-                            ratings={myRatings}
-                            onAssign={handleAssignVolunteer}
-                          />
+              <>
+                {/* Accepted — Assign Rider */}
+            {riderRequests.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-3 px-2">
+                  <h3 className="text-xs font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                    🚴 Rider Join Requests
+                    <span className="bg-primary text-white text-[9px] font-black px-2 py-0.5 rounded-full">
+                      {riderRequests.length}
+                    </span>
+                  </h3>
+                  <button 
+                    onClick={() => navigate("/ngo/profile")}
+                    className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-primary hover:opacity-80 transition-all"
+                  >
+                    <UserPlus size={12} /> Invite
+                  </button>
+                </div>
+                <div className="flex flex-col gap-3">
+                  {riderRequests.map(req => (
+                    <div key={req.id} className="glass-card-elevated p-4 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-black text-sm border border-primary/20 shrink-0">
+                          {(req.rider?.full_name || "R").charAt(0).toUpperCase()}
                         </div>
-                      ))}
+                        <div className="min-w-0">
+                          <p className="font-bold text-foreground text-sm truncate">
+                            {req.rider?.full_name || "Unknown Rider"}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {req.rider?.phone || "No phone"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleRejectRider(req.id, req.rider_id)}
+                          disabled={processingRequest === req.id}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-all disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveRider(req.id, req.rider_id)}
+                          disabled={processingRequest === req.id}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {processingRequest === req.id
+                            ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                            : null}
+                          Approve
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <h2 className="text-lg font-bold text-foreground mb-3">Your Active Requests</h2>
+            
+                {donations.filter(d => (d.status === "accepted" || d.status === "picked_up") && d.ngo_verified_by === user?.id).length === 0 && riderRequests.length === 0 ? (
+                  <div className="text-center py-16 bg-muted/10 rounded-[2.5rem] border border-dashed border-border/50 mt-2">
+                    <Truck size={48} className="text-muted-foreground/30 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground font-bold tracking-tight">No requests available at the moment</p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1 px-10">When you claim food from the Marketplace, it will appear here.</p>
+                    <button 
+                      onClick={() => navigate("/ngo")}
+                      className="mt-6 px-8 py-3 rounded-2xl bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:shadow-primary/40 active:scale-[0.98] transition-all"
+                    >
+                      Check Marketplace
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                {donations.filter(d => d.status === "accepted" && d.ngo_verified_by === user?.id).length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase text-slate-400 px-2 tracking-[0.2em] flex items-center gap-2">
+                       <UserPlus size={12} className="text-primary/40" />
+                       Assign Rider Team
+                    </h3>
+                    <div className="flex flex-col gap-4">
+                      {donations.filter(d => d.status === "accepted" && d.ngo_verified_by === user?.id).map((d) => {
+                        const isExpanded = assigningId === d.id;
+                        return (
+                          <div key={d.id} className={`group bg-white rounded-[2.5rem] border transition-all duration-500 overflow-hidden ${isExpanded ? "ring-2 ring-primary/5 shadow-2xl border-primary/20" : "border-slate-100 hover:border-primary/10 shadow-sm shadow-slate-200/50"}`}>
+                            {/* Donation Info Card */}
+                            <div 
+                              onClick={() => setAssigningId(isExpanded ? null : d.id)}
+                              className="p-6 cursor-pointer relative"
+                            >
+                              <div className="flex items-center gap-6">
+                                <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center shrink-0 border border-slate-100/50 shadow-inner group-hover:scale-105 transition-transform duration-500">
+                                  <Truck size={28} className="text-primary/40" />
+                                </div>
+                                <div className="flex-1 min-w-0 pr-4">
+                                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    <h4 className="font-bold text-slate-900 text-base tracking-tight truncate leading-tight">{d.title}</h4>
+                                    <div className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase tracking-widest border border-emerald-100">
+                                      Accepted
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5 text-[12px] text-slate-500 font-medium">
+                                      <MapPin size={12} className="text-slate-300 shrink-0" />
+                                      <span className="truncate">{d.location}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[12px] text-slate-400">
+                                      <Utensils size={12} className="text-slate-300 shrink-0" />
+                                      <span className="font-semibold text-slate-600">{d.quantity} Serving(s)</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Donor Details Section */}
+                              <div className={`mt-6 pt-5 border-t border-dashed border-slate-100 flex items-center justify-between transition-all duration-500 ${isExpanded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 h-0 overflow-hidden"}`}>
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center">
+                                    <User size={12} className="text-slate-400" />
+                                  </div>
+                                  <div>
+                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Donor Contact</p>
+                                    <p className="text-xs font-bold text-slate-700 tracking-tight">{d.donor?.full_name || "Community Donor"}</p>
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  {d.donor?.phone && (
+                                    <>
+                                      <button onClick={(e) => { e.stopPropagation(); handleCall(d.donor.phone); }} className="w-9 h-9 rounded-xl bg-slate-50 text-slate-600 border border-slate-200 flex items-center justify-center hover:bg-primary hover:text-white hover:border-primary transition-all shadow-sm">
+                                        <Phone size={14} />
+                                      </button>
+                                      <button onClick={(e) => { e.stopPropagation(); handleWhatsApp(d.donor.phone, d.donor.full_name); }} className="w-9 h-9 rounded-xl bg-slate-50 text-emerald-600 border border-slate-200 flex items-center justify-center hover:bg-emerald-500 hover:text-white hover:border-emerald-500 transition-all shadow-sm">
+                                        <MessageCircle size={14} />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Rider List (Expanded Section) */}
+                            <div className={`transition-all duration-500 ease-in-out ${isExpanded ? "max-h-[800px] bg-slate-50/30 border-t border-slate-100" : "max-h-0 overflow-hidden opacity-0"}`}>
+                              <div className="p-4">
+                                <RiderAssignmentControl
+                                  donationId={d.id}
+                                  volunteers={volunteers}
+                                  ratings={myRatings}
+                                  onAssign={handleAssignVolunteer}
+                                  allDonations={donations}
+                                  currentNgoId={user?.id}
+                                  ngos={ngos}
+                                  onRefreshVolunteers={() => fetchData(false)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
                 {donations.filter(d => d.status === "picked_up" && d.ngo_verified_by === user?.id).length > 0 && (
-                  <div>
-                    <h3 className="text-xs font-black uppercase text-muted-foreground mb-3 tracking-widest">In Progress</h3>
-                    <div className="flex flex-col gap-3">
+                  <div className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase text-primary px-4 py-2 bg-primary/5 rounded-2xl w-fit tracking-[0.2em] flex items-center gap-2 border border-primary/10 shadow-sm mb-2 ml-1">
+                       <Truck size={12} className="text-primary/60" />
+                       Delivery In Progress
+                    </h3>
+                    <div className="flex flex-col gap-4">
                       {donations.filter(d => d.status === "picked_up" && d.ngo_verified_by === user?.id).map((d) => {
                         const volunteer = volunteers.find(v => v.id === d.assigned_volunteer_id);
+                        const isExpanded = expandedRequestId === d.id;
                         return (
-                          <div key={d.id} className="glass-card p-4 space-y-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                                <Truck size={20} className="text-primary" />
-                              </div>
-                              <div className="flex-1">
-                                <h4 className="font-semibold text-foreground text-sm">{d.title}</h4>
-                                <p className="text-xs text-muted-foreground">📍 {d.location}</p>
-                              </div>
-                              <button
-                                onClick={() => navigate(`/ngo/track?donation=${d.id}`)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-semibold shrink-0 hover:bg-primary hover:text-white transition-all"
-                              >
-                                <MapPin size={12} /> Track
-                              </button>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/40">
-                              {/* Rider Contact Column */}
-                              <div className="bg-muted/30 p-2 rounded-xl border border-border/30 flex items-center justify-between">
-                                <div className="min-w-0 pr-1">
-                                  <p className="text-[8px] font-black uppercase text-muted-foreground tracking-wider">Rider</p>
-                                  <p className="text-[10px] font-bold text-foreground truncate">{volunteer?.full_name || "Assigned Rider"}</p>
+                          <div 
+                            key={d.id} 
+                            onClick={() => setExpandedRequestId(prev => prev === d.id ? null : d.id)}
+                            className={`group bg-white rounded-[2.5rem] border transition-all duration-500 overflow-hidden ${isExpanded ? "ring-2 ring-primary/5 shadow-2xl border-primary/20" : "border-slate-100 hover:border-primary/10 shadow-sm shadow-slate-200/50 cursor-pointer"}`}
+                          >
+                            <div className="p-6">
+                              <div className="flex items-center gap-6">
+                                <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center shrink-0 border border-slate-100/50 shadow-inner group-hover:scale-105 transition-transform duration-500">
+                                  <Truck size={28} className="text-primary/40" />
                                 </div>
-                                {volunteer?.phone && (
-                                  <div className="flex gap-1 shrink-0">
-                                    <button onClick={() => handleCall(volunteer.phone)} className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center hover:bg-primary hover:text-white transition-all" title="Call Rider">
-                                      <Phone size={10} />
-                                    </button>
-                                    <button onClick={() => handleWhatsApp(volunteer.phone, volunteer.full_name)} className="w-6 h-6 rounded bg-[#25D366]/10 text-[#25D366] flex items-center justify-center hover:bg-[#25D366] hover:text-white transition-all" title="WhatsApp Rider">
-                                      <MessageCircle size={10} />
-                                    </button>
+                                <div className="flex-1 min-w-0 pr-4">
+                                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    <h4 className="font-bold text-slate-900 text-base tracking-tight truncate leading-tight">{d.title}</h4>
+                                    <div className="px-2.5 py-0.5 rounded-full bg-primary text-white text-[8px] font-black uppercase tracking-widest border border-primary/10">
+                                      Moving
+                                    </div>
                                   </div>
-                                )}
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-1.5 text-[12px] text-slate-500 font-medium">
+                                      <MapPin size={12} className="text-slate-300 shrink-0" />
+                                      <span className="truncate text-slate-500">{d.location}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-[12px] text-slate-400">
+                                      <Utensils size={12} className="text-slate-300 shrink-0" />
+                                      <span className="font-semibold text-slate-600">{d.quantity} Serving(s)</span>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
 
-                              {/* Donor Contact Column */}
-                              <div className="bg-muted/30 p-2 rounded-xl border border-border/30 flex items-center justify-between">
-                                <div className="min-w-0 pr-1">
-                                  <p className="text-[8px] font-black uppercase text-muted-foreground tracking-wider">Donor</p>
-                                  <p className="text-[10px] font-bold text-foreground truncate">{d.donor?.full_name || "Community Donor"}</p>
-                                </div>
-                                {d.donor?.phone && (
-                                  <div className="flex gap-1 shrink-0">
-                                    <button onClick={() => handleCall(d.donor.phone)} className="w-6 h-6 rounded bg-primary/10 text-primary flex items-center justify-center hover:bg-primary hover:text-white transition-all" title="Call Donor">
-                                      <Phone size={10} />
-                                    </button>
-                                    <button onClick={() => handleWhatsApp(d.donor.phone, d.donor.full_name)} className="w-6 h-6 rounded bg-[#25D366]/10 text-[#25D366] flex items-center justify-center hover:bg-[#25D366] hover:text-white transition-all" title="WhatsApp Donor">
-                                      <MessageCircle size={10} />
-                                    </button>
+                              {/* Rider & Donor Info Section */}
+                              <div className={`mt-6 pt-5 border-t border-dashed border-slate-100 flex flex-col gap-4 transition-all duration-500 ${isExpanded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 h-0 overflow-hidden"}`}>
+                                {/* Rider Info Card */}
+                                <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                                  <div className="flex items-center gap-4 min-w-0">
+                                    <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm transition-transform group-hover:scale-105">
+                                      <User size={18} className="text-primary/60" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-0.5 leading-none">Assigned Rider</p>
+                                      <p className="text-[14px] font-bold text-slate-900 leading-tight truncate">{volunteer?.full_name || "Assigned Rider"}</p>
+                                    </div>
                                   </div>
-                                )}
+                                  {volunteer?.phone && (
+                                    <div className="flex gap-2 shrink-0">
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          navigate(`/ngo/track?donation=${d.id}`);
+                                        }} 
+                                        className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all active:scale-95 shadow-sm"
+                                        title="Track Live"
+                                      >
+                                        <MapPin size={14} />
+                                      </button>
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleCall(volunteer.phone); }} 
+                                        className="w-9 h-9 rounded-xl bg-white border border-slate-200 text-slate-600 flex items-center justify-center hover:bg-primary hover:text-white hover:border-primary transition-all active:scale-95 shadow-sm"
+                                      >
+                                        <Phone size={14} />
+                                      </button>
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleWhatsApp(volunteer.phone, volunteer.full_name); }} 
+                                        className="w-9 h-9 rounded-xl bg-white border border-slate-200 text-emerald-600 flex items-center justify-center hover:bg-emerald-500 hover:text-white hover:border-emerald-500 transition-all active:scale-95 shadow-sm"
+                                      >
+                                        <MessageCircle size={14} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Donor Info Card */}
+                                <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                                  <div className="flex items-center gap-4 min-w-0">
+                                    <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-sm transition-transform group-hover:scale-105">
+                                      <User size={18} className="text-primary/60" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-0.5 leading-none">Food Donor</p>
+                                      <p className="text-[14px] font-bold text-slate-900 leading-tight truncate">{d.donor?.full_name || "Community Partner"}</p>
+                                    </div>
+                                  </div>
+                                  {d.donor?.phone && (
+                                    <div className="flex gap-2 shrink-0">
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleCall(d.donor.phone); }} 
+                                        className="w-9 h-9 rounded-xl bg-white border border-slate-200 text-slate-600 flex items-center justify-center hover:bg-primary hover:text-white hover:border-primary transition-all active:scale-95 shadow-sm"
+                                      >
+                                        <Phone size={14} />
+                                      </button>
+                                      <button 
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleWhatsApp(d.donor.phone, d.donor.full_name); }} 
+                                        className="w-9 h-9 rounded-xl bg-white border border-slate-200 text-emerald-600 flex items-center justify-center hover:bg-emerald-500 hover:text-white hover:border-emerald-500 transition-all active:scale-95 shadow-sm"
+                                      >
+                                        <MessageCircle size={14} />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -785,36 +1217,53 @@ const NgoDashboard = () => {
                 )}
 
                 {donations.filter(d => d.status === "delivered" && d.ngo_verified_by === user?.id).length > 0 && (
-                  <div className="space-y-3 pt-2">
-                    <h3 className="text-xs font-black uppercase text-muted-foreground mb-3 tracking-widest">Received & Completed</h3>
-                    <div className="flex flex-col gap-3">
+                  <div className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase text-slate-400 px-2 tracking-[0.2em] flex items-center gap-2">
+                       <CheckCircle size={12} className="text-emerald-500/50" />
+                       Received & Completed
+                    </h3>
+                    <div className="flex flex-col gap-4">
                       {donations.filter(d => d.status === "delivered" && d.ngo_verified_by === user?.id).map((d) => {
                         const volunteer = volunteers.find(v => v.id === d.assigned_volunteer_id);
                         const rating = myRatings.find(r => r.donation_id === d.id);
                         
                         return (
-                          <div key={d.id} className="glass-card p-4 space-y-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center text-success">
-                                <CheckCircle size={20} />
+                          <div key={d.id} className="bg-white rounded-[2rem] border border-slate-100 p-6 shadow-sm shadow-slate-200/40">
+                            <div className="flex items-center gap-6">
+                              <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-500 border border-emerald-100 shadow-inner shrink-0">
+                                <CheckCircle size={24} />
                               </div>
-                              <div className="flex-1">
-                                <h4 className="font-semibold text-foreground text-sm">{d.title}</h4>
-                                <p className="text-xs text-muted-foreground">📍 {d.location} · 🍽 {d.quantity} servings</p>
+                              <div className="flex-1 min-w-0 pr-4">
+                                <h4 className="font-bold text-slate-900 text-base tracking-tight mb-1">{d.title}</h4>
+                                <div className="flex flex-wrap items-center gap-3">
+                                   <div className="flex items-center gap-1 text-[11px] text-slate-500">
+                                     <MapPin size={11} className="text-slate-300" />
+                                     <span className="truncate">{d.location.split(',')[0]}</span>
+                                   </div>
+                                   <div className="flex items-center gap-1 text-[11px] text-slate-500">
+                                     <Utensils size={11} className="text-slate-300" />
+                                     <span className="font-bold">{d.quantity} servings</span>
+                                   </div>
+                                </div>
                               </div>
                             </div>
 
                             {volunteer && (
-                              <div className="pt-2 border-t border-border/40 flex items-center justify-between">
-                                <div className="flex flex-col">
-                                  <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest leading-none mb-1">Rider</p>
-                                  <p className="text-[10px] font-bold text-foreground">{volunteer.full_name || "Assigned Rider"}</p>
+                              <div className="mt-5 pt-4 border-t border-dashed border-slate-100 flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-8 h-8 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center">
+                                    <User size={12} className="text-slate-400" />
+                                  </div>
+                                  <div>
+                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Assigned Rider</p>
+                                    <p className="text-[10px] font-bold text-slate-700">{volunteer.full_name || "Assigned Rider"}</p>
+                                  </div>
                                 </div>
                                 
                                 {rating ? (
-                                  <div className="flex items-center gap-1 bg-yellow-50 px-2 py-1 rounded-lg border border-yellow-100">
-                                    <Star size={11} className="text-yellow-500 fill-yellow-500" />
-                                    <span className="text-[10px] font-black text-yellow-700">{rating.rating}.0 (Rated)</span>
+                                  <div className="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
+                                    <Star size={12} className="text-amber-500 fill-amber-500" />
+                                    <span className="text-[10px] font-black text-amber-700">{rating.rating}.0 Rated</span>
                                   </div>
                                 ) : (
                                   <button
@@ -828,9 +1277,9 @@ const NgoDashboard = () => {
                                       setRatingValue(0);
                                       setRatingComment("");
                                     }}
-                                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary/10 text-primary hover:bg-primary hover:text-white text-xs font-bold active:scale-[0.97] transition-all cursor-pointer"
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/5 text-primary hover:bg-primary hover:text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-sm"
                                   >
-                                    <Star size={11} /> Rate Rider
+                                    <Star size={12} /> Rate Rider
                                   </button>
                                 )}
                               </div>
@@ -845,9 +1294,11 @@ const NgoDashboard = () => {
             )}
           </>
         )}
-      </div>
+      </>
+    )}
+  </div>
 
-      <BottomNav items={ngoNav} />
+<BottomNav items={ngoNav} />
       
       <ContactVerification 
         isOpen={verificationDialog.isOpen}
@@ -913,6 +1364,243 @@ const NgoDashboard = () => {
                   disabled={submittingRating}
                 >
                   {submittingRating ? <Loader2 className="animate-spin" size={12} /> : "Submit"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeStatType && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm z-50 animate-fade-in" onClick={() => setActiveStatType(null)}>
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl border border-border flex flex-col max-h-[80vh] animate-scale-in animate-duration-200" onClick={e => e.stopPropagation()}>
+            <div className="gradient-primary p-5 text-white flex justify-between items-center shrink-0">
+              <div>
+                <h4 className="font-extrabold text-lg tracking-tight">
+                  {activeStatType === "available" && "Available Food"}
+                  {activeStatType === "inProgress" && "In Progress Food"}
+                  {activeStatType === "received" && "Received Food"}
+                </h4>
+                <p className="text-[10px] text-white/80 font-semibold uppercase tracking-widest mt-0.5">
+                  {activeStatType === "available" && `${stats.available} donations available on marketplace`}
+                  {activeStatType === "inProgress" && `${stats.inProgress} active pickup requests`}
+                  {activeStatType === "received" && `${stats.received} donations received successfully`}
+                </p>
+              </div>
+              <button onClick={() => setActiveStatType(null)} className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-all">
+                <span className="text-xl font-bold leading-none">&times;</span>
+              </button>
+            </div>
+
+            {/* Date Filters Row */}
+            <div className="px-5 py-3 border-b border-border/40 flex items-center gap-1.5 overflow-x-auto scrollbar-none bg-muted/10 shrink-0">
+              <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mr-1">Filter:</span>
+              {[
+                { id: "all", label: "All" },
+                { id: "today", label: "Today" },
+                { id: "yesterday", label: "Yesterday" },
+                { id: "tomorrow", label: "Tomorrow" },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setPopupDateFilter(tab.id as any)}
+                  className={`px-3 py-1.5 rounded-full text-[10px] font-bold tracking-tight transition-all shrink-0 ${
+                    popupDateFilter === tab.id
+                      ? "gradient-primary text-white shadow-sm font-extrabold scale-105"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            
+            <div className="p-4 space-y-3 overflow-y-auto flex-1 bg-background">
+              {(() => {
+                let filtered = [];
+                if (activeStatType === "available") {
+                  filtered = donations.filter(d => d.status === "posted");
+                } else if (activeStatType === "inProgress") {
+                  filtered = donations.filter(d => d.status === "accepted" || d.status === "picked_up");
+                } else if (activeStatType === "received") {
+                  filtered = donations.filter(d => d.status === "delivered");
+                }
+
+                // Apply date filters
+                if (popupDateFilter === "today") {
+                  filtered = filtered.filter(d => {
+                    if (d.pickup_day?.toLowerCase() === "today") return true;
+                    if (d.created_at) {
+                      const created = new Date(d.created_at).toDateString();
+                      const today = new Date().toDateString();
+                      return created === today;
+                    }
+                    return false;
+                  });
+                } else if (popupDateFilter === "yesterday") {
+                  filtered = filtered.filter(d => {
+                    if (d.pickup_day?.toLowerCase() === "yesterday") return true;
+                    if (d.created_at) {
+                      const created = new Date(d.created_at).toDateString();
+                      const yesterday = new Date();
+                      yesterday.setDate(yesterday.getDate() - 1);
+                      return created === yesterday.toDateString();
+                    }
+                    return false;
+                  });
+                } else if (popupDateFilter === "tomorrow") {
+                  filtered = filtered.filter(d => {
+                    const pickupLower = d.pickup_day?.toLowerCase() || "";
+                    if (pickupLower === "tomorrow" || pickupLower === "day after") return true;
+                    if (d.created_at) {
+                      const created = new Date(d.created_at).toDateString();
+                      const tomorrow = new Date();
+                      tomorrow.setDate(tomorrow.getDate() + 1);
+                      return created === tomorrow.toDateString();
+                    }
+                    return false;
+                  });
+                }
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="text-center py-12 text-muted-foreground animate-fade-in">
+                      <Package size={36} className="mx-auto mb-2 opacity-30 animate-pulse" />
+                      <p className="text-sm font-semibold">No donations found</p>
+                      <p className="text-[10px] text-muted-foreground/80 mt-1 uppercase tracking-wider">Try selecting a different filter above</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-3 animate-fade-in">
+                    {filtered.map((d) => {
+                      const volunteer = volunteers.find(v => v.id === d.assigned_volunteer_id);
+                      return (
+                        <div key={d.id} className="p-4 rounded-2xl bg-muted/20 border border-border/40 space-y-3 shadow-sm hover:border-border/80 transition-all text-left">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <h5 className="font-bold text-foreground text-sm leading-tight">{d.title}</h5>
+                              <p className="text-[10px] text-primary font-black uppercase tracking-wider mt-0.5">Donor: {d.donor?.full_name || "Community"}</p>
+                            </div>
+                            <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider border shrink-0 ${
+                              d.status === "posted" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" :
+                              d.status === "accepted" ? "bg-amber-500/10 text-amber-600 border-amber-500/20" :
+                              d.status === "picked_up" ? "bg-blue-500/10 text-blue-600 border-blue-500/20" :
+                              "bg-[#10b981]/15 text-[#10b981] border-[#10b981]/25"
+                            }`}>
+                              {d.status === "posted" ? "Available" : d.status === "accepted" ? "Claimed" : d.status === "picked_up" ? "Picked Up" : d.status}
+                            </span>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-2 text-[10px] border-t border-b border-border/30 py-2">
+                            <p className="truncate"><span className="font-bold text-muted-foreground mr-1">Qty:</span>{d.quantity} servings</p>
+                            {d.pickup_day && <p className="truncate"><span className="font-bold text-muted-foreground mr-1">Day:</span>{d.pickup_day}</p>}
+                            {volunteer && (
+                              <p className="col-span-2 truncate"><span className="font-bold text-muted-foreground mr-1">Rider:</span>{volunteer.full_name || "Assigned"}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <MapPin size={11} className="text-primary shrink-0" />
+                            <span className="truncate">{d.location}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+            
+            <div className="p-4 border-t border-border shrink-0 bg-muted/10">
+              <button 
+                type="button" 
+                onClick={() => setActiveStatType(null)} 
+                className="w-full py-3 rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground font-black text-xs uppercase tracking-widest transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {claimDialog && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 backdrop-blur-md z-50 animate-fade-in" 
+          onClick={() => !claiming && setClaimDialog(null)}
+        >
+          <div 
+            className="bg-background rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl border border-border/80 animate-scale-in" 
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header with clean, elegant styling */}
+            <div className="relative p-6 pb-4 text-center border-b border-border/40">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3 shadow-sm">
+                <Utensils size={24} className="text-primary" />
+              </div>
+              <h4 className="font-extrabold text-lg text-foreground tracking-tight">Claim Food Donation</h4>
+              <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider mt-1">
+                Verify details before reserving
+              </p>
+            </div>
+            
+            {/* Body */}
+            <div className="p-6 space-y-4">
+              {/* Selected Item Summary */}
+              <div className="bg-muted/30 p-3.5 rounded-2xl border border-border/40 text-center">
+                <p className="text-[9px] text-muted-foreground uppercase font-black tracking-widest">Selected Item</p>
+                <h5 className="font-extrabold text-foreground text-sm mt-1.5">{claimDialog.title}</h5>
+                <p className="text-[11px] text-primary font-bold mt-1 inline-flex items-center gap-1 bg-primary/5 px-2 py-0.5 rounded-full border border-primary/10">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                  Donor: {claimDialog.donor?.full_name || "Community Partner"}
+                </p>
+              </div>
+
+              {/* Bento information grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-muted/20 p-3 rounded-2xl border border-border/30 text-center">
+                  <p className="text-[8px] text-muted-foreground font-black uppercase tracking-wider">Servings Available</p>
+                  <p className="text-xs font-extrabold text-foreground mt-1">{claimDialog.quantity} servings</p>
+                </div>
+                <div className="bg-muted/20 p-3 rounded-2xl border border-border/30 text-center">
+                  <p className="text-[8px] text-muted-foreground font-black uppercase tracking-wider">Scheduled Pickup</p>
+                  <p className="text-xs font-extrabold text-foreground mt-1">{claimDialog.pickup_day}</p>
+                </div>
+              </div>
+
+              {/* Informational Warning (Now in Clean English) */}
+              <div className="flex items-start gap-3 bg-primary/5 p-3.5 rounded-2xl border border-primary/10">
+                <CheckCircle size={16} className="text-primary shrink-0 mt-0.5" />
+                <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
+                  Confirming this claim will instantly reserve the food donation for your NGO. You will need to assign a volunteer rider to coordinate and handle the pickup.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button"
+                  disabled={claiming}
+                  onClick={() => setClaimDialog(null)} 
+                  className="flex-1 py-3 rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground font-black text-xs uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  disabled={claiming}
+                  onClick={() => handleAcceptDonation(claimDialog.id)}
+                  className="flex-[2] py-3 rounded-xl font-black text-white gradient-primary text-xs uppercase tracking-widest transition-all hover:opacity-95 hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-50"
+                >
+                  {claiming ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" /> Claiming...
+                    </>
+                  ) : (
+                    "Confirm Claim"
+                  )}
                 </button>
               </div>
             </div>

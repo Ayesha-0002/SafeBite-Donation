@@ -93,7 +93,7 @@ const PostFood = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!capturedImage) { 
-      fileInputRef.current?.click();
+      toast.error("Please capture a live photo of the food first!");
       return; 
     }
 
@@ -302,7 +302,7 @@ const PostFood = () => {
           <div className="flex gap-2">
             {["Today", "Tomorrow", "Day After"].map((day) => (
               <button key={day} type="button" onClick={() => setForm({ ...form, pickupDay: day })} className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${form.pickupDay === day ? "gradient-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                {day === "Day After" ? "Day After (Parson)" : day}
+                {day}
               </button>
             ))}
           </div>
@@ -319,7 +319,7 @@ const PostFood = () => {
           className="w-full py-3.5 rounded-xl font-semibold text-primary-foreground gradient-primary transition-all hover:opacity-90 active:scale-[0.98] mt-2 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isSubmitting ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-          {!capturedImage ? "Capture Photo First" : "Post & Notify Volunteers"}
+          Post Donation
         </button>
       </form>
     </div>

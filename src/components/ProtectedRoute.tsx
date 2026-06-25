@@ -1,7 +1,8 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { toast } from "sonner";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -37,12 +38,32 @@ const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
 
     const userRoles = profile?.user_roles?.map((r: any) => r.role) || [];
     const metadataRole = user.user_metadata?.role;
-    // Standard role check: checks user_roles table, metadata fallback, and direct profile role field
     const hasRole = userRoles.includes(requiredRole) || metadataRole === requiredRole || profile?.role === requiredRole;
+
+    // Special restriction: Admins cannot access other role dashboards for security
+    const isAdmin = userRoles.includes("admin") || metadataRole === "admin" || profile?.role === "admin";
+
+    if (isAdmin && requiredRole !== "admin") {
+      console.log("ProtectedRoute: Admin attempting to access role", requiredRole);
+      toast.error("Admin Restricted!", {
+        description: "Admin accounts are not allowed to access other role dashboards for security reasons.",
+        duration: 4000
+      });
+      navigate("/admin", { replace: true });
+      return;
+    }
 
     if (!hasRole) {
       console.log("ProtectedRoute: Role missing", { requiredRole, userRoles, metadataRole });
       navigate("/select-role", { replace: true });
+    }
+
+    if (requiredRole === "volunteer") {
+      const isApproved = profile?.is_approved === true || localStorage.getItem("sb_force_approved") === "true";
+      if (!isApproved) {
+        localStorage.removeItem("sb_profile_cache");
+        navigate("/pending-approval", { replace: true });
+      }
     }
   }, [user, profile, loading, requiredRole, navigate]);
 
