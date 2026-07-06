@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Home, Package, CheckCircle, Bell, Loader2, Truck, User, MessageCircle, UserPlus, MapPin, Utensils, LogOut, Phone, Star } from "lucide-react";
+import { Home, Package, CheckCircle, Bell, Loader2, Truck, User, MessageCircle, UserPlus, MapPin, Utensils, LogOut, Phone, Star, Users } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -10,6 +10,7 @@ import { useAuth } from "@/context/AuthContext";
 const ngoNav = [
   { icon: Home, label: "Home", path: "/ngo" },
   { icon: Package, label: "Requests", path: "/ngo/requests" },
+  { icon: Users, label: "Team", path: "/ngo/volunteers" },
   { icon: User, label: "Profile", path: "/ngo/profile" },
 ];
 
@@ -32,59 +33,6 @@ const RiderAssignmentControl = ({
   ngos?: any[];
   onRefreshVolunteers?: () => void;
 }) => {
-  const [localSelected, setLocalSelected] = useState("");
-  const [approvingRiderId, setApprovingRiderId] = useState<string | null>(null);
-  const [localApprovedIds, setLocalApprovedIds] = useState<string[]>([]);
-
-  const handleApproveRiderToTeam = async (riderId: string, name: string) => {
-    setApprovingRiderId(riderId);
-    try {
-      await supabase
-        .from("rider_join_requests")
-        .update({ status: "accepted" })
-        .eq("rider_id", riderId)
-        .eq("ngo_id", currentNgoId)
-        .throwOnError();
-
-      await Promise.all([
-        supabase
-          .from("profiles")
-          .update({ 
-            is_approved: true, 
-            ngo_id: currentNgoId,
-            role: "volunteer"
-          })
-          .eq("id", riderId)
-          .throwOnError(),
-        supabase
-          .from("user_roles")
-          .upsert({ 
-            user_id: riderId, 
-            role: "volunteer" 
-          })
-          .throwOnError()
-      ]);
-
-      await supabase.from("notifications").insert({
-        user_id: riderId,
-        title: "Joined Team! 🎉",
-        message: "You have been approved and added to the NGO's team.",
-        type: "success"
-      });
-
-      setLocalApprovedIds(prev => [...prev, riderId]);
-      toast.success(`${name} is now approved and part of your team.`);
-      if (onRefreshVolunteers) {
-        onRefreshVolunteers();
-      }
-    } catch (err: any) {
-      console.error("Direct riders approval error:", err);
-      toast.error("Failed to approve rider to team.");
-    } finally {
-      setApprovingRiderId(null);
-    }
-  };
-
   // Helper to calculate volunteer stats
   const getVolunteerStats = (volunteerId: string) => {
     const vRatings = ratings.filter(r => r.rated_user_id === volunteerId);
@@ -106,18 +54,7 @@ const RiderAssignmentControl = ({
   };
 
   const sortedVolunteers = [...volunteers]
-    .filter(v => {
-      // Only show riders with active, available, pending, or approved status (don't hide pending/registered riders)
-      const label = (v.statusLabel || "").toLowerCase();
-      return (
-        label.includes("approved") || 
-        label.includes("available") || 
-        label.includes("pending") || 
-        label === "rider" || 
-        !label || 
-        label.includes("active")
-      );
-    })
+    .filter(v => v.statusLabel === "Approved Rider" || v.is_approved === true || v.ngo_id === currentNgoId || v.statusLabel === "Available Rider")
     .sort((a, b) => {
       const statsA = getVolunteerStats(a.id);
       const statsB = getVolunteerStats(b.id);
@@ -139,13 +76,8 @@ const RiderAssignmentControl = ({
           sortedVolunteers.map(v => {
             const stats = getVolunteerStats(v.id);
             const isBusy = getBusyStatus(v.id);
-            const isApprovedLocally = localApprovedIds.includes(v.id);
-            const isMyTeam = v.ngo_id === currentNgoId || isApprovedLocally;
             
             const currentNgoName = ngos?.find((n: any) => n.id === currentNgoId)?.full_name || "My Team";
-            const ngoName = isMyTeam 
-              ? currentNgoName 
-              : (ngos?.find((n: any) => n.id === v.ngo_id)?.full_name || "Independent");
 
             return (
               <div
@@ -160,9 +92,7 @@ const RiderAssignmentControl = ({
                 <div className="flex items-start gap-3">
                   {/* Avatar */}
                   <div className="relative shrink-0 pt-0.5">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm border shadow-sm transition-colors ${
-                      isMyTeam ? "bg-primary/10 text-primary border-primary/20" : "bg-slate-50 text-slate-400 border-slate-100"
-                    }`}>
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm border shadow-sm transition-colors bg-primary/10 text-primary border-primary/20`}>
                       {(v.full_name || "U").charAt(0).toUpperCase()}
                     </div>
                     {!isBusy && (
@@ -181,12 +111,8 @@ const RiderAssignmentControl = ({
                         
                         {/* Organization / Status Badge */}
                         <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                          <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border shrink-0 ${
-                            isMyTeam 
-                              ? "bg-emerald-50 text-emerald-600 border-emerald-150" 
-                              : "bg-slate-50 text-slate-500 border-slate-200"
-                          }`}>
-                            {ngoName}
+                          <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border shrink-0 bg-emerald-50 text-emerald-600 border-emerald-150`}>
+                            {currentNgoName}
                           </span>
                         </div>
                       </div>
@@ -210,26 +136,6 @@ const RiderAssignmentControl = ({
 
                 {/* Footer action buttons placed in its own row to avoid horizontal squeezing */}
                 <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100">
-                  {!isMyTeam && (
-                    <button
-                      type="button"
-                      onClick={async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        await handleApproveRiderToTeam(v.id, v.full_name || "Unknown Rider");
-                      }}
-                      disabled={approvingRiderId === v.id}
-                      className="h-8 px-3 rounded-lg font-black text-[10px] uppercase tracking-widest text-[#0ea5e9] bg-[#0ea5e9]/5 hover:bg-[#0ea5e9] hover:text-white border border-[#0ea5e9]/15 transition-all duration-200 flex items-center justify-center gap-1.5 shadow-sm flex-1"
-                    >
-                      {approvingRiderId === v.id ? (
-                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <UserPlus size={11} className="shrink-0" />
-                      )}
-                      Approve
-                    </button>
-                  )}
-
                   <button
                     type="button"
                     onClick={async (e) => {
@@ -256,7 +162,7 @@ const RiderAssignmentControl = ({
         ) : (
           <div className="py-12 text-center rounded-[2rem] bg-muted/5 border border-dashed border-border/50">
             <User size={32} className="mx-auto text-muted-foreground/20 mb-3" />
-            <p className="text-[11px] text-muted-foreground font-bold px-6">No active riders found...</p>
+            <p className="text-[11px] text-muted-foreground font-bold px-6">No approved active riders found in your team...</p>
           </div>
         )}
       </div>
@@ -312,6 +218,7 @@ const NgoDashboard = () => {
   // Claim food confirmation dialog states
   const [claimDialog, setClaimDialog] = useState<any | null>(null);
   const [claiming, setClaiming] = useState(false);
+  const [dropoffLocation, setDropoffLocation] = useState("");
 
   const fetchData = useCallback(async (showLoading = false) => {
     if (!user) return;
@@ -655,12 +562,19 @@ const NgoDashboard = () => {
 
   const handleAcceptDonation = async (donationId: string) => {
     if (!user) return;
+    
+    if (!dropoffLocation.trim()) {
+      toast.error("Please specify a drop-off location for the rider.");
+      return;
+    }
+    
     setClaiming(true);
     try {
       const { error } = await supabase.from("food_donations").update({
         status: "accepted",
         ngo_verified_by: user.id,
         ngo_verified_at: new Date().toISOString(),
+        dropoff_location: dropoffLocation.trim(),
       }).eq("id", donationId);
 
       if (error) throw error;
@@ -890,7 +804,10 @@ const NgoDashboard = () => {
                       </div>
                       <div className="flex gap-3 mt-5">
                         <button
-                          onClick={() => setClaimDialog(d)}
+                          onClick={() => {
+                            setClaimDialog(d);
+                            setDropoffLocation("");
+                          }}
                           className="flex-1 h-11 rounded-2xl font-black text-white gradient-primary text-[10px] uppercase tracking-[0.15em] transition-all hover:opacity-95 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
                         >
                           Claim Food
@@ -930,67 +847,9 @@ const NgoDashboard = () => {
             ) : (
               <>
                 {/* Accepted — Assign Rider */}
-            {riderRequests.length > 0 && (
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-3 px-2">
-                  <h3 className="text-xs font-black uppercase text-muted-foreground tracking-widest flex items-center gap-2">
-                    🚴 Rider Join Requests
-                    <span className="bg-primary text-white text-[9px] font-black px-2 py-0.5 rounded-full">
-                      {riderRequests.length}
-                    </span>
-                  </h3>
-                  <button 
-                    onClick={() => navigate("/ngo/profile")}
-                    className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-primary hover:opacity-80 transition-all"
-                  >
-                    <UserPlus size={12} /> Invite
-                  </button>
-                </div>
-                <div className="flex flex-col gap-3">
-                  {riderRequests.map(req => (
-                    <div key={req.id} className="glass-card-elevated p-4 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-black text-sm border border-primary/20 shrink-0">
-                          {(req.rider?.full_name || "R").charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-bold text-foreground text-sm truncate">
-                            {req.rider?.full_name || "Unknown Rider"}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {req.rider?.phone || "No phone"}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleRejectRider(req.id, req.rider_id)}
-                          disabled={processingRequest === req.id}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-all disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleApproveRider(req.id, req.rider_id)}
-                          disabled={processingRequest === req.id}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-600 border border-emerald-200 hover:bg-emerald-600 hover:text-white transition-all disabled:opacity-50 flex items-center gap-1"
-                        >
-                          {processingRequest === req.id
-                            ? <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                            : null}
-                          Approve
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             <h2 className="text-lg font-bold text-foreground mb-3">Your Active Requests</h2>
             
-                {donations.filter(d => (d.status === "accepted" || d.status === "picked_up") && d.ngo_verified_by === user?.id).length === 0 && riderRequests.length === 0 ? (
+                {donations.filter(d => (d.status === "accepted" || d.status === "picked_up") && d.ngo_verified_by === user?.id).length === 0  ? (
                   <div className="text-center py-16 bg-muted/10 rounded-[2.5rem] border border-dashed border-border/50 mt-2">
                     <Truck size={48} className="text-muted-foreground/30 mx-auto mb-3" />
                     <p className="text-sm text-muted-foreground font-bold tracking-tight">No requests available at the moment</p>
@@ -1567,6 +1426,26 @@ const NgoDashboard = () => {
                 <div className="bg-muted/20 p-3 rounded-2xl border border-border/30 text-center">
                   <p className="text-[8px] text-muted-foreground font-black uppercase tracking-wider">Scheduled Pickup</p>
                   <p className="text-xs font-extrabold text-foreground mt-1">{claimDialog.pickup_day}</p>
+                </div>
+              </div>
+
+
+
+              {/* Drop-off Location Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase text-muted-foreground tracking-widest pl-1">Drop-off Location *</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <MapPin size={14} className="text-muted-foreground/60" />
+                  </div>
+                  <input
+                    type="text"
+                    value={dropoffLocation}
+                    onChange={(e) => setDropoffLocation(e.target.value)}
+                    placeholder="Enter full address for the rider..."
+                    className="w-full pl-9 pr-4 py-2.5 bg-muted/20 border border-border/50 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all placeholder:text-muted-foreground/40"
+                    required
+                  />
                 </div>
               </div>
 

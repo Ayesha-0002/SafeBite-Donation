@@ -52,7 +52,7 @@ import SignaturePad from "@/components/SignaturePad";
 import { toast } from "sonner";
 import { ContactVerification } from "@/components/ContactVerification";
 
-type DeliveryStatus = "not-started" | "en-route" | "arrived" | "photo-proof" | "signature" | "delivered";
+type DeliveryStatus = "not-started" | "en-route" | "arrived" | "in-transit" | "arrived-dropoff" | "photo-proof" | "signature" | "delivered";
 
 const LiveTracking = () => {
   const navigate = useNavigate();
@@ -88,7 +88,7 @@ const LiveTracking = () => {
 
   const [trackingRecord, setTrackingRecord] = useState<any>(null);
   const [donor, setDonor] = useState<{ id: string; phone: string | null; full_name: string | null } | null>(null);
-  const [donation, setDonation] = useState<{ title: string; location: string } | null>(null);
+  const [donation, setDonation] = useState<{ title: string; location: string; dropoff_location?: string } | null>(null);
   const [ngo, setNgo] = useState<{ full_name: string; address: string | null } | null>(null);
 
   const fetchTrackingData = useCallback(async () => {
@@ -106,9 +106,9 @@ const LiveTracking = () => {
     }
     
     if (donationData) {
-      setDonation({ title: donationData.title, location: donationData.location });
+      setDonation({ title: donationData.title, location: donationData.location, dropoff_location: donationData.dropoff_location });
       if (donationData.status === "delivered") setStatus("delivered");
-      else if (donationData.status === "picked_up") setStatus("arrived");
+      else if (donationData.status === "picked_up") setStatus("in-transit");
       // Don't auto-set en-route here, we want them to click "Start Ride" usually, unless already tracking
 
       // Generate stable coordinates for this donation if not present
@@ -118,7 +118,7 @@ const LiveTracking = () => {
       // Fetch donor profile
       const { data: donorProfile } = await supabase
         .from("profiles")
-        .select("id, phone, full_name")
+        .select("id, phone, full_name, address")
         .eq("id", donationData.donor_id)
         .single();
       
@@ -128,14 +128,30 @@ const LiveTracking = () => {
           phone: donorProfile.phone,
           full_name: donorProfile.full_name
         });
+        
+        if (!donationData.location && donorProfile.address) {
+          setDonation(prev => prev ? { ...prev, location: donorProfile.address! } : { title: donationData.title, location: donorProfile.address! });
+        }
       }
 
-      // Fetch NGO profile if assigned
-      if (donationData.ngo_verified_by) {
+      // Fetch NGO profile if assigned, else try to get volunteer's own NGO
+      let targetNgoId = donationData.ngo_verified_by;
+      
+      if (!targetNgoId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: volProfile } = await supabase.from("profiles").select("ngo_id").eq("id", user.id).single();
+          if (volProfile && volProfile.ngo_id) {
+            targetNgoId = volProfile.ngo_id;
+          }
+        }
+      }
+
+      if (targetNgoId) {
         const { data: ngoProfile } = await supabase
           .from("profiles")
           .select("full_name, address")
-          .eq("id", donationData.ngo_verified_by)
+          .eq("id", targetNgoId)
           .single();
         if (ngoProfile) {
           setNgo({ 
@@ -212,8 +228,8 @@ const LiveTracking = () => {
   useEffect(() => {
     if (isSimulated && location && status !== "not-started") {
       simulationInterval.current = setInterval(() => {
-        const targetLat = status === "en-route" ? pickupCoords.lat : dropoffCoords.lat;
-        const targetLng = status === "en-route" ? pickupCoords.lng : dropoffCoords.lng;
+        const targetLat = (status === "en-route" || status === "arrived") ? pickupCoords.lat : dropoffCoords.lat;
+        const targetLng = (status === "en-route" || status === "arrived") ? pickupCoords.lng : dropoffCoords.lng;
         
         setLocation(prev => {
           if (!prev) return prev;
@@ -555,13 +571,17 @@ const LiveTracking = () => {
                  </div>
               </AdvancedMarker>
               
-              <AdvancedMarker position={status === "en-route" ? pickupCoords : dropoffCoords} title="Destination">
+              <AdvancedMarker position={pickupCoords} title="Pickup Point">
+                 <Pin background="#10b981" glyphColor="#fff" borderColor="#047857" />
+              </AdvancedMarker>
+              
+              <AdvancedMarker position={dropoffCoords} title="Drop-off Point">
                  <Pin background="#ef4444" glyphColor="#fff" borderColor="#b91c1c" />
               </AdvancedMarker>
               
               <RouteDisplay 
                 origin={location} 
-                destination={status === "en-route" ? pickupCoords : dropoffCoords} 
+                destination={(status === "not-started" || status === "en-route" || status === "arrived") ? pickupCoords : dropoffCoords} 
                 setDistanceInfo={(d, m) => { setDistance(d); setEta(m); }}
               />
             </Map>
@@ -575,7 +595,7 @@ const LiveTracking = () => {
         <div className="h-8 w-px bg-border" />
         <div><p className="text-xs text-muted-foreground font-body">ETA</p><p className="text-lg font-bold text-foreground">{eta} min</p></div>
         <div className="h-8 w-px bg-border" />
-        <div><p className="text-xs text-muted-foreground font-body">Status</p><p className="text-sm font-bold text-primary">{status === "arrived" || status === "photo-proof" ? "Arrived 📍" : "En Route 🚗"}</p></div>
+        <div><p className="text-xs text-muted-foreground font-body">Status</p><p className="text-sm font-bold text-primary">{status === "arrived" ? "At Pickup 📍" : status === "arrived-dropoff" || status === "photo-proof" ? "At Drop-off 📍" : "En Route 🚗"}</p></div>
       </div>
 
       {/* Delivery Photo Preview (if taken but going back) */}
@@ -661,8 +681,8 @@ const LiveTracking = () => {
         <div className="flex items-start gap-3 mt-3">
           <div className="w-3 h-3 rounded-full bg-destructive mt-1" />
           <div>
-            <p className="text-sm font-medium text-foreground">Drop-off Point (NGO Location)</p>
-            <p className="text-xs text-muted-foreground font-body leading-relaxed max-w-[250px]">{(ngo && ngo.address) ? `${ngo.full_name}, ${ngo.address}` : ngo?.full_name ? ngo.full_name : "Not specified"}</p>
+            <p className="text-sm font-medium text-foreground">Drop-off Point</p>
+            <p className="text-xs text-muted-foreground font-body leading-relaxed max-w-[250px]">{donation?.dropoff_location || ((ngo && ngo.address) ? `${ngo.full_name}, ${ngo.address}` : ngo?.full_name ? ngo.full_name : "Not specified")}</p>
           </div>
         </div>
       </div>
@@ -680,6 +700,25 @@ const LiveTracking = () => {
             className="w-full py-3.5 rounded-xl font-bold text-white bg-emerald-600 transition-all hover:bg-emerald-700 active:scale-[0.98] flex items-center justify-center gap-2"
           >
             Start Ride
+          </button>
+        ) : status === "en-route" ? (
+           <button disabled className="w-full py-3.5 rounded-xl font-bold text-white bg-emerald-600/50 transition-all flex items-center justify-center gap-2">
+            Navigating to Pickup...
+          </button>
+        ) : status === "arrived" ? (
+          <button
+            onClick={async () => {
+              setStatus("in-transit");
+              await supabase.from("food_donations").update({ status: "picked_up" }).eq("id", donationId);
+              toast.success("Navigating to Drop-off.");
+            }}
+            className="w-full py-3.5 rounded-xl font-bold text-white bg-blue-600 transition-all hover:bg-blue-700 active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            Confirm Pickup & Start Delivery
+          </button>
+        ) : status === "in-transit" ? (
+           <button disabled className="w-full py-3.5 rounded-xl font-bold text-white bg-blue-600/50 transition-all flex items-center justify-center gap-2">
+            Navigating to Drop-off...
           </button>
         ) : (
           <button

@@ -140,8 +140,14 @@ const DonorDashboard = () => {
       return;
     }
     const cleanPhone = phone.replace(/\D/g, "");
+    let formattedPhone = cleanPhone;
+    if (cleanPhone.startsWith("0")) {
+      formattedPhone = "92" + cleanPhone.substring(1);
+    } else if (cleanPhone.length === 10 && !cleanPhone.startsWith("92")) {
+      formattedPhone = "92" + cleanPhone;
+    }
     const message = encodeURIComponent(`Assalam o Alaikum, this is regarding the SafeBite food donation. I am the ${profile?.full_name || 'assigned person'}.`);
-    window.open(`https://wa.me/${cleanPhone}/?text=${message}`, "_blank");
+    window.open(`https://wa.me/${formattedPhone}/?text=${message}`, "_blank");
   };
 
   const getStatusBadge = (status: string) => {

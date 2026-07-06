@@ -4,22 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
-    <!-- Fix PWA SW Cache issues forcefully -->
     <script>
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(registrations) {
-          for(let registration of registrations) {
-            registration.unregister();
-            console.log('Force unregistering old SW to clear broken cache:', registration);
-          }
-        });
-        
-        // Also clear any rogue caches
-        if (window.caches) {
-          caches.keys().then(function(names) {
-            for (let name of names) caches.delete(name);
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/serviceWorker.js').then(registration => {
+            console.log('SW registered: ', registration);
+          }).catch(registrationError => {
+            console.log('SW registration failed: ', registrationError);
           });
-        }
+        });
       }
     </script>
     <!-- TODO: Set the document title to the name of your application -->
@@ -50,16 +43,6 @@
 
   <body>
     <div id="root"></div>
-    <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(registrations) {
-          for(let registration of registrations) {
-            registration.unregister();
-            console.log('Nuked SW:', registration);
-          }
-        });
-      }
-    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

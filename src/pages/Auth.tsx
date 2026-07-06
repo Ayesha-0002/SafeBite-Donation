@@ -123,27 +123,11 @@ CREATE TRIGGER on_auth_user_created
         setFetchingNgos(true);
         console.log("Supabase: Starting NGO Fetch...");
         
+
+
         const resultMap = new Map<string, string>();
 
-        // Always seed with default fallback NGOs so they are always visible
-        const defaults = [
-          { id: '25f2c60b-aa69-4d8b-a774-d8a8d3e48946', full_name: 'Edhi Foundation' },
-          { id: '40504155-3945-4da2-9d70-49a572f693a1', full_name: 'Saylani Welfare Trust' },
-          { id: 'bb4198f6-f050-4f5d-91ed-932416030f0f', full_name: 'Al-Khidmat Foundation' },
-          { id: '2f2d41e5-ba4e-4ece-8a67-a69fcfc5a365', full_name: 'Chhipa Welfare Association' }
-        ];
-
-        defaults.forEach(d => {
-          resultMap.set(d.id, d.full_name);
-        });
-
-        const KNOWN_NGOS: Record<string, string> = {
-          '25f2c60b-aa69-4d8b-a774-d8a8d3e48946': 'Edhi Foundation',
-          '40504155-3945-4da2-9d70-49a572f693a1': 'Saylani Welfare Trust',
-          'bb4198f6-f050-4f5d-91ed-932416030f0f': 'Al-Khidmat Foundation',
-          '2f2d41e5-ba4e-4ece-8a67-a69fcfc5a365': 'Chhipa Welfare Association'
-        };
-
+        // Only fetch actual registered NGOs
         // Stage 1: Fetch from profiles first
         const { data: profData, error: profErr } = await supabase
           .from("profiles")
@@ -158,14 +142,8 @@ CREATE TRIGGER on_auth_user_created
             profData.forEach(p => {
               const r = String(p.role || "").toLowerCase().trim();
               const nameLower = String(p.full_name || "").toLowerCase();
-              const isNgoName = nameLower.includes("ngo") || 
-                               nameLower.includes("welfare") || 
-                               nameLower.includes("foundation") || 
-                               nameLower.includes("trust") || 
-                               nameLower.includes("charity") ||
-                               nameLower.includes("association");
-              if (r === "ngo" || isNgoName) {
-                resultMap.set(p.id, p.full_name || (p as any).name || KNOWN_NGOS[p.id] || "Unnamed NGO");
+              if (r === "ngo") {
+                resultMap.set(p.id, p.full_name || (p as any).name || "Unnamed NGO");
               }
             });
             console.log(`Diagnostic: Profiles matching 'ngo' role or name keywords: ${resultMap.size}`);
@@ -196,14 +174,14 @@ CREATE TRIGGER on_auth_user_created
                 
               if (extraProfs) {
                 extraProfs.forEach(p => {
-                  resultMap.set(p.id, p.full_name || (p as any).name || KNOWN_NGOS[p.id] || "Unnamed NGO");
+                  resultMap.set(p.id, p.full_name || (p as any).name || "Unnamed NGO");
                 });
               }
 
               // Self-heal: For any registered NGO whose profile was not created, assign the known name or a fallback
               missingIds.forEach(id => {
                 if (!resultMap.has(id)) {
-                  resultMap.set(id, KNOWN_NGOS[id] || `Registered NGO #${id.substring(0, 4)}`);
+                  resultMap.set(id, `Registered NGO #${id.substring(0, 4)}`);
                 }
               });
             }
@@ -214,7 +192,7 @@ CREATE TRIGGER on_auth_user_created
         try {
           const { data: reqData, error: reqErr } = await supabase
             .from("registration_requests")
-            .select("id, full_name, requested_role")
+            .select("user_id, full_name, requested_role")
             .eq("requested_role", "ngo");
           
           if (reqErr) {
@@ -222,8 +200,8 @@ CREATE TRIGGER on_auth_user_created
           } else if (reqData) {
             console.log(`Diagnostic: registration_requests table returned ${reqData.length} NGO registration requests.`);
             reqData.forEach(r => {
-              if (r.id && !resultMap.has(r.id)) {
-                resultMap.set(r.id, r.full_name || "New Registered NGO");
+              if (r.user_id && (!resultMap.has(r.user_id) || resultMap.get(r.user_id)?.startsWith("Registered NGO #"))) {
+                resultMap.set(r.user_id, r.full_name || "New Registered NGO");
               }
             });
           }

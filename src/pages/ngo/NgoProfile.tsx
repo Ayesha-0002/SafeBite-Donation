@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Home, Package, User, MessageCircle, LogOut, Loader2, Mail, Phone, ArrowLeft, Settings, UserPlus } from "lucide-react";
+import { Home, Package, User, MessageCircle, LogOut, Loader2, Mail, Phone, ArrowLeft, Settings, Users } from "lucide-react";
 import BottomNav from "@/components/BottomNav";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
@@ -9,6 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 const ngoNav = [
   { icon: Home, label: "Home", path: "/ngo" },
   { icon: Package, label: "Requests", path: "/ngo/requests" },
+  { icon: Users, label: "Team", path: "/ngo/volunteers" },
   { icon: User, label: "Profile", path: "/ngo/profile" },
 ];
 

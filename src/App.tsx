@@ -23,6 +23,7 @@ import NgoChat from "./pages/ngo/NgoChat";
 import NgoTrackRider from "./pages/ngo/NgoTrackRider";
 import NgoProfile from "./pages/ngo/NgoProfile";
 import NgoSettings from "./pages/ngo/NgoSettings";
+import ManageVolunteers from "./pages/ngo/ManageVolunteers";
 import VolunteerDashboard from "./pages/volunteer/VolunteerDashboard";
 import LiveTracking from "./pages/volunteer/LiveTracking";
 import VolunteerPickups from "./pages/volunteer/VolunteerPickups";
@@ -212,6 +213,7 @@ const AuthGuardWrapper = () => (
       <Route path="/ngo/track" element={<ProtectedRoute requiredRole="ngo"><NgoTrackRider /></ProtectedRoute>} />
       <Route path="/ngo/profile" element={<ProtectedRoute requiredRole="ngo"><NgoProfile /></ProtectedRoute>} />
       <Route path="/ngo/settings" element={<ProtectedRoute requiredRole="ngo"><NgoSettings /></ProtectedRoute>} />
+      <Route path="/ngo/volunteers" element={<ProtectedRoute requiredRole="ngo"><ManageVolunteers /></ProtectedRoute>} />
       
       {/* Volunteer / Rider Routes */}
       <Route path="/volunteer" element={<ProtectedRoute requiredRole="volunteer"><VolunteerDashboard /></ProtectedRoute>} />
