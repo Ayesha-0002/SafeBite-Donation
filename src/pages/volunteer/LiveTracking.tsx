@@ -89,14 +89,28 @@ const LiveTracking = () => {
   const [trackingRecord, setTrackingRecord] = useState<any>(null);
   const [donor, setDonor] = useState<{ id: string; phone: string | null; full_name: string | null } | null>(null);
   const [donation, setDonation] = useState<{ title: string; location: string; dropoff_location?: string } | null>(null);
-  const [ngo, setNgo] = useState<{ full_name: string; address: string | null } | null>(null);
+  const [ngo, setNgo] = useState<{ full_name: string; address: string | null; phone: string | null } | null>(null);
+
+
+  const geocodeAddress = async (address: string) => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      }
+    } catch (err) {
+      console.error("Geocoding failed", err);
+    }
+    return null;
+  };
 
   const fetchTrackingData = useCallback(async () => {
     if (!donationId) return;
     
     const { data: donationData, error } = await supabase
       .from("food_donations")
-      .select("title, location, donor_id, ngo_verified_by, status")
+      .select("title, location, dropoff_location, donor_id, ngo_verified_by, status")
       .eq("id", donationId)
       .single();
     
@@ -111,10 +125,14 @@ const LiveTracking = () => {
       else if (donationData.status === "picked_up") setStatus("in-transit");
       // Don't auto-set en-route here, we want them to click "Start Ride" usually, unless already tracking
 
-      // Generate stable coordinates for this donation if not present
-      const h = donationId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 100;
-      setPickupCoords({ lat: 31.5204 + (h * 0.0005), lng: 74.3587 + (h * 0.0005) });
-      
+      // Geocode pickup address
+      const pickupAddress = donationData.location;
+      if (pickupAddress) {
+        geocodeAddress(pickupAddress).then(coords => {
+          if (coords) setPickupCoords(coords);
+        });
+      }
+
       // Fetch donor profile
       const { data: donorProfile } = await supabase
         .from("profiles")
@@ -172,7 +190,7 @@ const LiveTracking = () => {
   const updateLocationInDb = useCallback(async (lat: number, lng: number) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user || !donationId) return;
-    const dbStatus = status === "photo-proof" || status === "signature" ? "arrived" : status === "delivered" ? "delivered" : status;
+    const dbStatus = ["arrived-dropoff", "photo-proof", "signature"].includes(status) ? "arrived-dropoff" : status === "delivered" ? "delivered" : status;
     const { data: existing } = await supabase.from("volunteer_tracking").select("*").eq("volunteer_id", user.id).eq("donation_id", donationId).maybeSingle();
     if (existing) {
       const { data: updated } = await supabase.from("volunteer_tracking").update({ latitude: lat, longitude: lng, status: dbStatus, updated_at: new Date().toISOString() }).eq("id", existing.id).select().single();
@@ -219,11 +237,9 @@ const LiveTracking = () => {
   const startSimulation = useCallback(() => {
     setIsSimulated(true);
     setGpsError(null);
-    // Start at a point slightly away from pickup if en-route
-    if (!location) {
-      setLocation({ lat: pickupCoords.lat - 0.02, lng: pickupCoords.lng - 0.02 });
-    }
-  }, [location, pickupCoords]);
+    // Force location to be near pickup point for demo purposes
+    setLocation({ lat: pickupCoords.lat - 0.01, lng: pickupCoords.lng - 0.01 });
+  }, [pickupCoords]);
 
   useEffect(() => {
     if (isSimulated && location && status !== "not-started") {
@@ -269,9 +285,12 @@ const LiveTracking = () => {
       setEta(estimatedMinutes > 1 ? estimatedMinutes : 1);
     }
 
-    if (dist < 0.05 && status === "en-route") {
+    if (dist < 0.15 && status === "en-route") {
       toast.success("You have arrived at the pickup point!");
       setStatus("arrived");
+    } else if (dist < 0.15 && status === "in-transit") {
+      toast.success("You have arrived at the drop-off point!");
+      setStatus("arrived-dropoff");
     }
     
     updateLocationInDb(location.lat, location.lng);
@@ -595,7 +614,7 @@ const LiveTracking = () => {
         <div className="h-8 w-px bg-border" />
         <div><p className="text-xs text-muted-foreground font-body">ETA</p><p className="text-lg font-bold text-foreground">{eta} min</p></div>
         <div className="h-8 w-px bg-border" />
-        <div><p className="text-xs text-muted-foreground font-body">Status</p><p className="text-sm font-bold text-primary">{status === "arrived" ? "At Pickup 📍" : status === "arrived-dropoff" || status === "photo-proof" ? "At Drop-off 📍" : "En Route 🚗"}</p></div>
+        <div><p className="text-xs text-muted-foreground font-body">Current Step</p><p className="text-sm font-bold text-primary">{status === "not-started" ? "Ready to Start" : status === "en-route" ? "To Pickup Point" : status === "arrived" ? "At Pickup" : status === "in-transit" ? "To Drop-off NGO" : status === "arrived-dropoff" || status === "photo-proof" || status === "signature" ? "At Drop-off" : "Task Completed"}</p></div>
       </div>
 
       {/* Delivery Photo Preview (if taken but going back) */}
@@ -611,37 +630,56 @@ const LiveTracking = () => {
         </div>
       )}
 
-      {/* Donor Contact Card */}
-      {donor && (
-        <div className="mx-4 mt-4 glass-card-elevated p-4 flex items-center justify-between animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-              <User size={20} />
+      {/* Contact Card */}
+      {(() => {
+        const isHeadingToDropoff = ["in-transit", "arrived-dropoff", "photo-proof", "signature", "delivered"].includes(status);
+        const contactTarget = isHeadingToDropoff ? ngo : donor;
+        const targetType = isHeadingToDropoff ? "NGO Drop-off" : "Food Donor";
+        const targetName = isHeadingToDropoff ? ngo?.full_name || "NGO Location" : donor?.full_name || "SafeBite Donor";
+        
+        if (!contactTarget) return null;
+        
+        const handleCall = () => {
+          if (contactTarget.phone) window.open(`tel:${contactTarget.phone}`, "_system");
+          else toast.error("Phone number not available");
+        };
+
+        const handleWhatsApp = () => {
+          if (contactTarget.phone) window.open(`https://wa.me/${contactTarget.phone.replace(/[^0-9]/g, '')}`, "_blank");
+          else toast.error("WhatsApp not available");
+        };
+
+        return (
+          <div className="mx-4 mt-4 glass-card-elevated p-4 flex items-center justify-between animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                <User size={20} />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">{targetType}</p>
+                <h4 className="text-sm font-bold text-foreground">{targetName}</h4>
+                <p className="text-xs text-muted-foreground font-medium">{contactTarget.phone || "Number stored"}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Food Donor</p>
-              <h4 className="text-sm font-bold text-foreground">{donor.full_name || "SafeBite Donor"}</h4>
-              <p className="text-xs text-muted-foreground font-medium">{donor.phone || "Number stored"}</p>
-            </div>
-          </div>
             <div className="flex gap-2">
               <button 
-                onClick={handleCallDonor}
+                onClick={handleCall}
                 className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20 animate-bounce-subtle"
-                title="Call Donor"
+                title={`Call ${targetType}`}
               >
                 <Phone size={18} />
               </button>
               <button 
-                onClick={handleWhatsAppDonor}
+                onClick={handleWhatsApp}
                 className="w-10 h-10 rounded-xl bg-[#25D366] text-white flex items-center justify-center shadow-lg shadow-[#25D366]/20"
-                title="WhatsApp Message"
+                title={`WhatsApp ${targetType}`}
               >
                 <MessageCircle size={18} />
               </button>
             </div>
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* Timestamps */}
       {(rideStartedAt || rideEndedAt) && (
@@ -697,38 +735,37 @@ const LiveTracking = () => {
               setStatus("en-route");
               toast.success("Ride started! Drive safely.");
             }}
-            className="w-full py-3.5 rounded-xl font-bold text-white bg-emerald-600 transition-all hover:bg-emerald-700 active:scale-[0.98] flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-xl font-bold text-white bg-emerald-600 transition-all hover:bg-emerald-700 active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20"
           >
             Start Ride
           </button>
-        ) : status === "en-route" ? (
-           <button disabled className="w-full py-3.5 rounded-xl font-bold text-white bg-emerald-600/50 transition-all flex items-center justify-center gap-2">
-            Navigating to Pickup...
-          </button>
-        ) : status === "arrived" ? (
+        ) : (status === "en-route" || status === "arrived") ? (
           <button
             onClick={async () => {
               setStatus("in-transit");
               await supabase.from("food_donations").update({ status: "picked_up" }).eq("id", donationId);
-              toast.success("Navigating to Drop-off.");
+              toast.success("Food picked up! Navigating to NGO Drop-off.");
             }}
-            className="w-full py-3.5 rounded-xl font-bold text-white bg-blue-600 transition-all hover:bg-blue-700 active:scale-[0.98] flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-xl font-bold text-white bg-blue-600 transition-all hover:bg-blue-700 active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
           >
             Confirm Pickup & Start Delivery
           </button>
-        ) : status === "in-transit" ? (
-           <button disabled className="w-full py-3.5 rounded-xl font-bold text-white bg-blue-600/50 transition-all flex items-center justify-center gap-2">
-            Navigating to Drop-off...
-          </button>
-        ) : (
-          <button
+        ) : (status === "in-transit" || status === "arrived-dropoff") ? (
+           <button
             onClick={handleStartDeliveryProof}
-            className="w-full py-3.5 rounded-xl font-semibold text-secondary-foreground gradient-warm transition-all hover:opacity-90 active:scale-[0.98] flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-xl font-semibold text-white bg-orange-500 transition-all hover:bg-orange-600 active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20"
           >
             <Camera size={18} />
-            {deliveryPhoto ? "Retake Photo & Get Signature" : "Deliver — Take Photo & Signature"}
+            Deliver — Take Photo & Signature
           </button>
-        )}
+        ) : (status === "photo-proof" || status === "signature") ? (
+           <button
+            onClick={() => setStatus("signature")}
+            className="w-full py-3.5 rounded-xl font-semibold text-white bg-orange-500 transition-all hover:bg-orange-600 active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            Continue Verification
+          </button>
+        ) : null}
       </div>
     </div>
   );
